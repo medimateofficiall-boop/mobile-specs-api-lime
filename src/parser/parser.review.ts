@@ -62,9 +62,11 @@ function cleanImgUrl(src: string | undefined): string {
  */
 function thumbToFullRes(thumbUrl: string): string {
   if (!thumbUrl) return '';
-  // Replace any size segment like /-160/ or /-1200w5/ with /-/-/
-  const full = thumbUrl.replace(/\/-[\dw]+\//, '/-\/-\/');
-  return full;
+  // GSMArena full-res camera sample URLs have NO size token.
+  // Confirmed from live CDN: /imgroot/reviews/25/google-pixel-10-pro/camera/gsmarena_2105.jpg
+  // Thumbnail: /camera/-160/gsmarena_1101.jpg
+  // Full-res:  /camera/gsmarena_1101.jpg  (strip the /-NNN/ segment)
+  return thumbUrl.replace(//-[dw]+//, '/');
 }
 
 /**
