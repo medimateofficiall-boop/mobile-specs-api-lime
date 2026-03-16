@@ -187,32 +187,52 @@ app.get('/phone', async (request, reply) => {
     return reply.status(500).send({ status: false, error: `Specs fetch failed: ${err?.message}` });
   }
 
-  // Step 3 – scrape camera samples and HD image from review/camera page
+  // Step 3 – scrape camera samples from review/camera page
   let cameraSamples: any[] = [];
   let lensDetails: any[] = [];
-  let hdImageUrl: string | null = null;
-  if (specs.review_url) {
+  let hdImageUrl: string | null = specs.imageUrl || null;
+
+  // Helper: try scraping camera samples from a given page URL
+  const tryCameraUrl = async (url: string): Promise<boolean> => {
     try {
-      const reviewSlug = specs.review_url
-        .replace(/^https?:\/\/[^/]+\//, '')
-        .replace(/\.php$/, '');
-      const reviewData = await getReviewDetails(reviewSlug);
-      cameraSamples = reviewData.cameraSamples;
-      lensDetails = reviewData.lensDetails ?? [];
-      // HD image priority:
-      // 1. Lifestyle/inline photo from review (1200px, sharpest)
-      // 2. Hero image from review page header
-      // Do NOT use lifestyle/scene photos as device image (they show the phone in a scene,
-      // not the clean product shot users expect to see).
-      // hdImageUrl stays null here — we use specs.imageUrl (bigpic) as the device photo.
-    } catch {
-      cameraSamples = [];
-    }
+      const slug = url.replace(/^https?:\/\/[^/]+\//, '').replace(/\.php$/, '');
+      const reviewData = await getReviewDetails(slug);
+      if (reviewData.cameraSamples.length > 0) {
+        cameraSamples = reviewData.cameraSamples;
+        lensDetails = reviewData.lensDetails ?? [];
+        return true;
+      }
+    } catch { /* ignore */ }
+    return false;
+  };
+
+  // Attempt 1: use review_url from specs page (flagship phones with full reviews)
+  if (specs.review_url) {
+    await tryCameraUrl(specs.review_url);
   }
-  // Always use the specs page bigpic as hdImageUrl — this is the same URL shown
-  // in search results, so the image never changes when opening the detail screen.
-  if (specs.imageUrl) {
-    hdImageUrl = specs.imageUrl;
+
+  // Attempt 2: if still no samples, search GSMArena news for camera_samples article.
+  // Mid-range phones (e.g. iQOO Z7 Pro) often have only a news/camera-samples page,
+  // and the specs page may not link to it directly.
+  if (cameraSamples.length === 0) {
+    try {
+      const { getHtml } = await import('../src/parser/parser.service');
+      const cheerioMod = await import('cheerio');
+      const searchName = encodeURIComponent(bestMatch.name);
+      const searchUrl = `https://www.gsmarena.com/search.php3?sQuickSearch=yes&sName=${searchName}+camera+samples`;
+      const html = await getHtml(searchUrl);
+      const $s = cheerioMod.load(html);
+      let foundUrl = '';
+      $s('a').each((_: any, el: any) => {
+        const href = ($s(el).attr('href') || '').toLowerCase();
+        if (!href.endsWith('.php')) return;
+        if (href.includes('camera_samples') || (href.includes('-news-') && href.includes('camera'))) {
+          foundUrl = href.startsWith('http') ? href : `https://www.gsmarena.com/${href}`;
+          return false; // break
+        }
+      });
+      if (foundUrl) await tryCameraUrl(foundUrl);
+    } catch { /* search failed */ }
   }
 
   return {

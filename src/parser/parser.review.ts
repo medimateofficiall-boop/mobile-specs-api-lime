@@ -67,7 +67,7 @@ function thumbToFullRes(thumbUrl: string): string {
   //   /-160/   /-216/   /-320/   /-1200/   /-1200w5/   /-[any digits+w]/ 
   // Full-res URL has NO size token segment.
   // Pattern: replace  /camera/-160/gsmarena_X.jpg  →  /camera/gsmarena_X.jpg
-  const stripped = thumbUrl.replace(/\/-[\dw]+\//, '/');
+  const stripped = thumbUrl.replace(/\/-[x]?[\dw]+\//, '/');
   // Verify the strip actually did something — if not, the URL may already be
   // a different format. Return the stripped version regardless.
   return stripped;
@@ -75,7 +75,7 @@ function thumbToFullRes(thumbUrl: string): string {
 
 /** Return true if the URL still looks like a thumbnail (has a size token) */
 function isThumbnailUrl(url: string): boolean {
-  return /\/-[\dw]+\//.test(url);
+  return /\/-[x]?[\dw]+\//.test(url);
 }
 
 /**
