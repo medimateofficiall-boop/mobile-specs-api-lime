@@ -101,4 +101,3 @@ export interface IReviewResult {
     /** Lens details parsed from article-blurb-findings list on the camera review page */
     lensDetails: ILensDetail[];
 }
-  

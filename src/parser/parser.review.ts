@@ -34,6 +34,7 @@ import {
   ICameraSampleCategory,
   ICameraSample,
   IReviewGallerySection,
+  ILensDetail,
 } from '../types';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -311,7 +312,6 @@ async function scrapeCameraPage(url: string): Promise<ICameraSampleCategory[]> {
     categoryMap.get(label)!.push({
       category: label,
       url: fullUrl,
-      thumbnailUrl: thumbUrl,
       caption: caption || undefined,
     });
   });
@@ -404,6 +404,78 @@ async function scrapeArticleImages(slug: string, pageNum: number): Promise<IRevi
 // Main exported function
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+/**
+ * Scrape lens details from the camera review page.
+ *
+ * GSMArena's camera page has two things we want:
+ *
+ * 1. <ul class="article-blurb article-blurb-findings">
+ *      <li><b>Wide (main):</b> 50MP Sony Lytia LYT-828 ...</li>
+ *      <li><b>Telephoto 3.5x:</b> 200MP Samsung ...</li>
+ *    </ul>
+ *
+ * 2. <img class="inline-image" src="...lifestyle/...jpg"> — section representative photos
+ *    These appear *above* the findings list and represent the camera setup.
+ */
+async function scrapeLensDetails(cameraPageUrl: string): Promise<ILensDetail[]> {
+  let html: string;
+  try { html = await getHtml(cameraPageUrl); } catch { return []; }
+
+  const $ = cheerio.load(html);
+  const lenses: ILensDetail[] = [];
+
+  // Collect all inline-image URLs from the page (lifestyle/representative shots)
+  // We'll assign the first one per logical section to the matching lens
+  const inlineImages: string[] = [];
+  $('img.inline-image').each((_, el) => {
+    const src = $(el).attr('src') || $(el).attr('data-src') || '';
+    if (src && !inlineImages.includes(src)) inlineImages.push(src);
+  });
+
+  // Parse the findings list — GSMArena uses several possible class combinations:
+  // <ul class="article-blurb article-blurb-findings">
+  // <ul class="article-blurb-findings">
+  // We find any <ul> that contains <li> items where the first child is <b>
+  // and the text starts with a camera role label (Wide, Telephoto, Ultrawide, Front)
+  const cameraRoleRx = /^(wide|telephoto|ultrawide|ultra-wide|front|selfie|periscope|main)/i;
+
+  // Try explicit selectors first
+  const findingsSelector = [
+    'ul.article-blurb-findings li',
+    'ul.article-blurb.article-blurb-findings li',
+    '.article-blurb-findings li',
+  ].join(', ');
+
+  let $items = $(findingsSelector);
+
+  // Fallback: scan every <ul> for one whose <li>s start with camera role <b> tags
+  if ($items.length === 0) {
+    $('ul').each((_, ul) => {
+      const firstLi = $(ul).find('li').first();
+      const firstB  = firstLi.find('b').first().text().trim();
+      if (cameraRoleRx.test(firstB)) {
+        $items = $(ul).find('li');
+        return false; // break
+      }
+    });
+  }
+
+  $items.each((idx, el) => {
+    const $li = $(el);
+    const roleRaw = $li.find('b').first().text().replace(/:$/, '').trim();
+    if (!roleRaw || !cameraRoleRx.test(roleRaw)) return;
+
+    const fullText = $li.text().trim();
+    const detail = fullText.replace(roleRaw + ':', '').trim();
+    const sectionImageUrl = inlineImages[idx] ?? inlineImages[inlineImages.length - 1];
+
+    lenses.push({ role: roleRaw, detail, sectionImageUrl });
+  });
+
+  return lenses;
+}
+
 export async function getReviewDetails(reviewSlug: string): Promise<IReviewResult> {
   // Normalise to base slug (strip trailing pN)
   const baseReviewSlug = reviewSlug.replace(/-review-(\d+)p\d+$/, '-review-$1');
@@ -440,11 +512,18 @@ export async function getReviewDetails(reviewSlug: string): Promise<IReviewResul
   // Find which page has camera samples
   const cameraPageNum = await findCameraPageNumber(baseReviewSlug, reviewId);
 
-  // Scrape camera samples from the camera page
+  // Scrape camera samples from camera page
   let cameraSamples: ICameraSampleCategory[] = [];
   if (cameraPageNum) {
     const cameraUrl = `${baseUrl}/${baseReviewSlug}p${cameraPageNum}.php`;
     cameraSamples = await scrapeCameraPage(cameraUrl);
+  }
+  // Scrape lens details from p1 (overview) — article-blurb-findings lives there
+  // If not found on p1, also try p2 (design/hardware page)
+  let lensDetails: ILensDetail[] = await scrapeLensDetails(reviewUrl);
+  if (lensDetails.length === 0) {
+    const p2Url = `${baseUrl}/${baseReviewSlug}p2.php`;
+    lensDetails = await scrapeLensDetails(p2Url);
   }
 
   // Scrape article images from non-camera pages (p1, p2, p3, p4 etc.)
@@ -460,5 +539,6 @@ export async function getReviewDetails(reviewSlug: string): Promise<IReviewResul
     heroImages,
     articleImages,
     cameraSamples,
+    lensDetails,
   };
 }

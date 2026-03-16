@@ -189,6 +189,7 @@ app.get('/phone', async (request, reply) => {
 
   // Step 3 – if review URL exists, scrape camera samples
   let cameraSamples: any[] = [];
+  let lensDetails: any[] = [];
   if (specs.review_url) {
     try {
       // Extract slug from full URL:  https://www.gsmarena.com/FOO-review-NNNNpX.php  →  FOO-review-NNNNpX
@@ -197,8 +198,8 @@ app.get('/phone', async (request, reply) => {
         .replace(/\.php$/, '');
       const reviewData = await getReviewDetails(reviewSlug);
       cameraSamples = reviewData.cameraSamples;
+      lensDetails = reviewData.lensDetails ?? [];
     } catch {
-      // Camera samples are best-effort — don't fail the whole request
       cameraSamples = [];
     }
   }
@@ -209,6 +210,7 @@ app.get('/phone', async (request, reply) => {
     data: {
       ...specs,
       cameraSamples,
+      lensDetails,
     },
   };
 });
