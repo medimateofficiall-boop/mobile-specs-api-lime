@@ -63,11 +63,19 @@ function cleanImgUrl(src: string | undefined): string {
  */
 function thumbToFullRes(thumbUrl: string): string {
   if (!thumbUrl) return '';
-  // GSMArena full-res camera sample URLs have NO size token.
-  // Confirmed from live CDN: /imgroot/reviews/25/google-pixel-10-pro/camera/gsmarena_2105.jpg
-  // Thumbnail: /camera/-160/gsmarena_1101.jpg
-  // Full-res:  /camera/gsmarena_1101.jpg  (strip the /-NNN/ segment)
-  return thumbUrl.replace(/\/-[\dw]+\//, '/');
+  // GSMArena CDN size tokens we need to strip:
+  //   /-160/   /-216/   /-320/   /-1200/   /-1200w5/   /-[any digits+w]/ 
+  // Full-res URL has NO size token segment.
+  // Pattern: replace  /camera/-160/gsmarena_X.jpg  →  /camera/gsmarena_X.jpg
+  const stripped = thumbUrl.replace(/\/-[\dw]+\//, '/');
+  // Verify the strip actually did something — if not, the URL may already be
+  // a different format. Return the stripped version regardless.
+  return stripped;
+}
+
+/** Return true if the URL still looks like a thumbnail (has a size token) */
+function isThumbnailUrl(url: string): boolean {
+  return /\/-[\dw]+\//.test(url);
 }
 
 /**
@@ -299,6 +307,9 @@ async function scrapeCameraPage(url: string): Promise<ICameraSampleCategory[]> {
     const thumbUrl = cleanImgUrl(src);
     const fullUrl = thumbToFullRes(thumbUrl);
     if (!fullUrl || seen.has(fullUrl)) return;
+    // Safety: if the URL still contains a size token after stripping, skip it
+    // rather than serve a blurry thumbnail to the client
+    if (isThumbnailUrl(fullUrl)) return;
     seen.add(fullUrl);
 
     const caption = $(el).attr('alt') || '';
