@@ -61,21 +61,45 @@ function cleanImgUrl(src: string | undefined): string {
  *
  *   The size token (/-160/, /-216/, /-320/, /-1200/, /-1200w5/) is replaced with /-/-/
  */
+/**
+ * Universal full-resolution URL extractor.
+ *
+ * Instead of regex on size tokens (fragile, breaks on new formats like -x120),
+ * we use path structure: GSMArena always stores full-res images at:
+ *   /imgroot/reviews/<year>/<device>/camera/<filename>
+ * Thumbnails add a size segment before the filename:
+ *   /imgroot/reviews/<year>/<device>/camera/-160/<filename>
+ *   /imgroot/reviews/<year>/<device>/camera/-x120/<filename>
+ *
+ * By splitting on the section path and keeping only the filename,
+ * we get the full-res URL regardless of what size token was used.
+ */
 function thumbToFullRes(thumbUrl: string): string {
   if (!thumbUrl) return '';
-  // GSMArena CDN size tokens we need to strip:
-  //   /-160/   /-216/   /-320/   /-1200/   /-1200w5/   /-[any digits+w]/ 
-  // Full-res URL has NO size token segment.
-  // Pattern: replace  /camera/-160/gsmarena_X.jpg  →  /camera/gsmarena_X.jpg
-  const stripped = thumbUrl.replace(/\/-[x]?[\dw]+\//, '/');
-  // Verify the strip actually did something — if not, the URL may already be
-  // a different format. Return the stripped version regardless.
-  return stripped;
+  if (!thumbUrl.includes('/imgroot/reviews/')) return thumbUrl;
+
+  // Extract filename (gsmarena_NNNN.jpg or similar number-based filename)
+  const filenameMatch = thumbUrl.match(/(gsmarena_\d+\.\w+)$/);
+  if (!filenameMatch) return thumbUrl;
+  const filename = filenameMatch[1];
+
+  // Find the section path (/camera/, /lifestyle/, /design/, /photos/)
+  const sections = ['/camera/', '/lifestyle/', '/design/', '/photos/'];
+  for (const section of sections) {
+    const idx = thumbUrl.indexOf(section);
+    if (idx !== -1) {
+      return thumbUrl.slice(0, idx + section.length) + filename;
+    }
+  }
+
+  // Fallback: strip any /-token/ segment before the filename
+  return thumbUrl.replace(/\/-[^/]+\/(?=gsmarena_)/, '/');
 }
 
-/** Return true if the URL still looks like a thumbnail (has a size token) */
+/** Return true if the URL still has a size token (shouldn't happen with new extractor) */
 function isThumbnailUrl(url: string): boolean {
-  return /\/-[x]?[\dw]+\//.test(url);
+  // Check for any path segment that looks like a size token: /-NNN/ or /-xNNN/
+  return /\/-(\d|x\d)[^/]*\//.test(url);
 }
 
 /**

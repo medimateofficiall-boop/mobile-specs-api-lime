@@ -211,27 +211,37 @@ app.get('/phone', async (request, reply) => {
     await tryCameraUrl(specs.review_url);
   }
 
-  // Attempt 2: if still no samples, search GSMArena news for camera_samples article.
-  // Mid-range phones (e.g. iQOO Z7 Pro) often have only a news/camera-samples page,
-  // and the specs page may not link to it directly.
+  // Attempt 2: if still no samples, search GSMArena for a camera_samples news article.
+  // Mid-range phones (iQOO Z7 Pro etc.) have camera-samples news pages that the
+  // specs page doesn't link to. We search GSMArena's quick-search to find them.
   if (cameraSamples.length === 0) {
     try {
       const { getHtml } = await import('../src/parser/parser.service');
-      const cheerioMod = await import('cheerio');
-      const searchName = encodeURIComponent(bestMatch.name);
-      const searchUrl = `https://www.gsmarena.com/search.php3?sQuickSearch=yes&sName=${searchName}+camera+samples`;
-      const html = await getHtml(searchUrl);
-      const $s = cheerioMod.load(html);
-      let foundUrl = '';
-      $s('a').each((_: any, el: any) => {
-        const href = ($s(el).attr('href') || '').toLowerCase();
-        if (!href.endsWith('.php')) return;
-        if (href.includes('camera_samples') || (href.includes('-news-') && href.includes('camera'))) {
-          foundUrl = href.startsWith('http') ? href : `https://www.gsmarena.com/${href}`;
-          return false; // break
+      const cheerio = (await import('cheerio')).default || await import('cheerio');
+      // Search 1: device name + "camera samples"
+      // Search 2: device slug-based search
+      const queries = [
+        bestMatch.name + ' camera samples',
+        bestMatch.name,
+      ];
+      for (const q of queries) {
+        if (cameraSamples.length > 0) break;
+        const searchUrl = `https://www.gsmarena.com/results.php3?sQuickSearch=yes&sName=${encodeURIComponent(q)}`;
+        const html = await getHtml(searchUrl);
+        const $ = (cheerio as any).load ? (cheerio as any).load(html) : (cheerio as any).default.load(html);
+        const links: string[] = [];
+        $('a').each((_: any, el: any) => {
+          const href = ($(el).attr('href') || '') as string;
+          if (!href.endsWith('.php')) return;
+          const lower = href.toLowerCase();
+          if (lower.includes('camera_samples') || (lower.includes('-news-') && lower.includes('camera'))) {
+            links.push(href.startsWith('http') ? href : `https://www.gsmarena.com/${href}`);
+          }
+        });
+        for (const link of links) {
+          if (await tryCameraUrl(link)) break;
         }
-      });
-      if (foundUrl) await tryCameraUrl(foundUrl);
+      }
     } catch { /* search failed */ }
   }
 
