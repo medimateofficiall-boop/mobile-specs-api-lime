@@ -433,35 +433,31 @@ async function scrapeLensDetails(cameraPageUrl: string): Promise<ILensDetail[]> 
     if (src && !inlineImages.includes(src)) inlineImages.push(src);
   });
 
-  // Parse the findings list — GSMArena uses several possible class combinations:
-  // <ul class="article-blurb article-blurb-findings">
-  // <ul class="article-blurb-findings">
-  // We find any <ul> that contains <li> items where the first child is <b>
-  // and the text starts with a camera role label (Wide, Telephoto, Ultrawide, Front)
+  // Parse ALL article-blurb-findings lists on this page.
+  // GSMArena sometimes has multiple <ul class="article-blurb article-blurb-findings">
+  // blocks on the same page — one for main camera, one for selfie, etc.
+  // We collect every <li> from every matching list.
   const cameraRoleRx = /^(wide|telephoto|ultrawide|ultra-wide|front|selfie|periscope|main)/i;
 
-  // Try explicit selectors first
-  const findingsSelector = [
-    'ul.article-blurb-findings li',
-    'ul.article-blurb.article-blurb-findings li',
-    '.article-blurb-findings li',
-  ].join(', ');
+  // Collect <li> items from every findings list on the page
+  const allLiItems: any[] = [];
 
-  let $items = $(findingsSelector);
+  // Strategy 1: explicit class selectors — collect from ALL matching <ul>s
+  $('ul.article-blurb-findings, ul.article-blurb.article-blurb-findings').each((_, ul) => {
+    $(ul).find('li').each((_, li) => allLiItems.push(li));
+  });
 
-  // Fallback: scan every <ul> for one whose <li>s start with camera role <b> tags
-  if ($items.length === 0) {
+  // Strategy 2: if nothing found, scan every <ul> whose first <li> starts with a role <b>
+  if (allLiItems.length === 0) {
     $('ul').each((_, ul) => {
-      const firstLi = $(ul).find('li').first();
-      const firstB  = firstLi.find('b').first().text().trim();
+      const firstB = $(ul).find('li').first().find('b').first().text().trim();
       if (cameraRoleRx.test(firstB)) {
-        $items = $(ul).find('li');
-        return false; // break
+        $(ul).find('li').each((_, li) => allLiItems.push(li));
       }
     });
   }
 
-  $items.each((idx, el) => {
+  allLiItems.forEach((el, idx) => {
     const $li = $(el);
     const roleRaw = $li.find('b').first().text().replace(/:$/, '').trim();
     if (!roleRaw || !cameraRoleRx.test(roleRaw)) return;
@@ -518,12 +514,18 @@ export async function getReviewDetails(reviewSlug: string): Promise<IReviewResul
     const cameraUrl = `${baseUrl}/${baseReviewSlug}p${cameraPageNum}.php`;
     cameraSamples = await scrapeCameraPage(cameraUrl);
   }
-  // Scrape lens details from p1 (overview) — article-blurb-findings lives there
-  // If not found on p1, also try p2 (design/hardware page)
-  let lensDetails: ILensDetail[] = await scrapeLensDetails(reviewUrl);
-  if (lensDetails.length === 0) {
-    const p2Url = `${baseUrl}/${baseReviewSlug}p2.php`;
-    lensDetails = await scrapeLensDetails(p2Url);
+  // Scrape lens details — try pages in order until we find 2+ lens entries.
+  // GSMArena puts the article-blurb-findings list on p1, p2, or p3 depending on the review.
+  // We need at least 2 entries to be confident we have the full camera breakdown.
+  let lensDetails: ILensDetail[] = [];
+  const pagesToTry = [reviewUrl];
+  for (let pn = 2; pn <= 4; pn++) {
+    pagesToTry.push(`${baseUrl}/${baseReviewSlug}p${pn}.php`);
+  }
+  for (const pageUrl of pagesToTry) {
+    const found = await scrapeLensDetails(pageUrl);
+    if (found.length > lensDetails.length) lensDetails = found;
+    if (lensDetails.length >= 2) break; // found a real camera list
   }
 
   // Scrape article images from non-camera pages (p1, p2, p3, p4 etc.)
