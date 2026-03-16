@@ -1,7 +1,8 @@
 export interface ISearchResult {
     name: string;
     slug: string;
-    imageUrl?: string;
+    imageUrl?: string;   // HD bigpic URL
+    thumbUrl?: string;   // Small thumbnail — reliable fallback if bigpic 404s
     detail_url: string;
 }
   
@@ -101,3 +102,4 @@ export interface IReviewResult {
     /** Lens details parsed from article-blurb-findings list on the camera review page */
     lensDetails: ILensDetail[];
 }
+  
