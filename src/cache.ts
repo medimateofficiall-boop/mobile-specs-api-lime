@@ -69,13 +69,26 @@ async function _redisSet(k: string, d: unknown): Promise<void> {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Read: mem → Redis → null */
-export async function cacheGet<T>(k: string): Promise<T | null> {
+export type CacheSource = 'mem' | 'redis' | 'miss';
+
+export interface CacheResult<T> {
+  data: T | null;
+  source: CacheSource;
+}
+
+/** Read with source info: mem → Redis → null */
+export async function cacheGetWithSource<T>(k: string): Promise<CacheResult<T>> {
   const mem = _memGet(k);
-  if (mem !== null) return mem as T;
+  if (mem !== null) return { data: mem as T, source: 'mem' };
   const red = await _redisGet(k);
-  if (red !== null) { _memSet(k, red); return red as T; }
-  return null;
+  if (red !== null) { _memSet(k, red); return { data: red as T, source: 'redis' }; }
+  return { data: null, source: 'miss' };
+}
+
+/** Read: mem → Redis → null (backwards-compatible) */
+export async function cacheGet<T>(k: string): Promise<T | null> {
+  const r = await cacheGetWithSource<T>(k);
+  return r.data;
 }
 
 /** Write: mem (sync) + Redis (fire-and-forget) */

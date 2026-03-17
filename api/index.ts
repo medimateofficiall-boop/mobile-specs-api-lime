@@ -1,5 +1,6 @@
 import Fastify from 'fastify';
 import { ParserService } from '../src/parser/parser.service';
+import { cacheGetWithSource, cacheSet } from '../src/cache';
 import { getPhoneDetails } from '../src/parser/parser.phone-details';
 import { getBrands } from '../src/parser/parser.brands';
 import { getReviewDetails } from '../src/parser/parser.review';
@@ -831,12 +832,20 @@ app.get('/phone', async (request, reply) => {
     return reply.status(400).send({ status: false, error: 'Query param "name" is required. e.g. /phone?name=samsung galaxy s26 ultra' });
   }
 
-  // Step 1 – search for best match
-  let searchResults;
-  try {
-    searchResults = await parserService.search(name);
-  } catch (err: any) {
-    return reply.status(500).send({ status: false, error: `Search failed: ${err?.message}` });
+  // Step 1 – search for best match (with cache source tracking)
+  const searchCk = `gsm:search:v1:${name.toLowerCase().trim()}`;
+  const searchCached = await cacheGetWithSource<any[]>(searchCk);
+  let searchResults: any[];
+  let cacheSource = searchCached.source; // 'mem' | 'redis' | 'miss'
+
+  if (searchCached.data) {
+    searchResults = searchCached.data;
+  } else {
+    try {
+      searchResults = await parserService.search(name);
+    } catch (err: any) {
+      return reply.status(500).send({ status: false, error: `Search failed: ${err?.message}` });
+    }
   }
 
   if (!searchResults || searchResults.length === 0) {
@@ -847,12 +856,20 @@ app.get('/phone', async (request, reply) => {
   // slug from detail_url is like "/samsung_galaxy_s26_ultra-12548"
   const deviceSlug = bestMatch.slug.replace(/^\//, '');
 
-  // Step 2 – fetch full specs (includes review_url + device_images)
-  let specs;
-  try {
-    specs = await getPhoneDetails(deviceSlug);
-  } catch (err: any) {
-    return reply.status(500).send({ status: false, error: `Specs fetch failed: ${err?.message}` });
+  // Step 2 – fetch full specs (with cache source tracking)
+  const specsCk = `gsm:phone:v1:${deviceSlug}`;
+  const specsCached = await cacheGetWithSource<any>(specsCk);
+  let specs: any;
+  if (specsCached.data) {
+    specs = specsCached.data;
+    if (specsCached.source !== 'miss') cacheSource = specsCached.source;
+  } else {
+    cacheSource = 'miss';
+    try {
+      specs = await getPhoneDetails(deviceSlug);
+    } catch (err: any) {
+      return reply.status(500).send({ status: false, error: `Specs fetch failed: ${err?.message}` });
+    }
   }
 
   // Step 3 – scrape camera samples from review/camera page
@@ -916,9 +933,10 @@ app.get('/phone', async (request, reply) => {
   return {
     status: true,
     matched: bestMatch.name,
+    _cache: cacheSource,   // 'mem' | 'redis' | 'miss'
     data: {
       ...specs,
-      hdImageUrl,        // 1200px lifestyle/hero image from review page
+      hdImageUrl,
       cameraSamples,
       lensDetails,
     },
