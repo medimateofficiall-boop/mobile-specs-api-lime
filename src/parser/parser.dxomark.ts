@@ -670,12 +670,10 @@ function parseHtmlFallback(html: string, pageUrl: string, brand: string, model: 
 export interface IDxoSampleImage {
   /** Category heading — e.g. "Main Camera", "Ultra-Wide", "Zoom", "Selfie", "Video" */
   category: string;
-  /** Full image URL (CDN or wp-content) */
+  /** Full-resolution image URL */
   url: string;
-  /** Alt text or caption if present */
+  /** Caption text if present on the page */
   caption: string | null;
-  /** Thumbnail URL if a separate src exists, otherwise same as url */
-  thumbnail: string | null;
 }
 
 export interface IDxoReview {
@@ -776,12 +774,13 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
   });
 
   // ── Ranking ──────────────────────────────────────────────────────────────────
+  // cheerio collapses whitespace between child spans so "16th\n\nRanking Position"
+  // can render as "16thRanking Position" with NO gap — use \s* not \s+
   let rankPosition: number | null = null;
   let rankLabel: string | null = null;
   const bodyText = $('body').text();
-  // Page renders: "16th\n\nRanking Position\n\nin Global Ranking"
   const rankMatch =
-    bodyText.match(/(\d+)(st|nd|rd|th)\s+Ranking Position/i) ||
+    bodyText.match(/(\d+)(st|nd|rd|th)\s*Ranking Position/i) ||
     bodyText.match(/#(\d+)\s+in\s+Global Ranking/i) ||
     bodyText.match(/(\d+)(st|nd|rd|th)\s+in\s+Global Ranking/i);
   if (rankMatch) {
@@ -871,14 +870,16 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
     if (/^cons$/i.test(txt)) { prosCons = 'cons'; return; }
     if (/^(overview|test summary|use cases|scoring|conclusion|about dxomark)/i.test(txt)) { prosCons = ''; return; }
     if (tag === 'li' && txt.length > 5 && txt.length < 200) {
-      // Skip if contains newlines (nav menu items like "Rankings\n\tCustom Ranking...")
-      if (/\n|\t/.test(raw)) return;
-      // Skip single-word nav/glossary items and lux/unit-only strings
+      // Skip nav/menu items (contain newlines or tabs from nested lists)
+      if (/[\n\t]/.test(raw)) return;
+      // Skip lux/unit-only labels
       if (/^\d+\s*(lux|k|ev|db|fps)$/i.test(txt)) return;
+      // Skip all known nav/footer/glossary items (single short phrases without verbs)
+      if (/^(our label|our company|our partners|smart choice label|expert committee|how we test|b2b solutions|contact us?|glossary|press relations|join us|rankings|reviews|about|articles|insights|smartphones|cameras|speakers|laptops|wireless speakers|camera sensors|camera lenses|test results|best of|tech articles|custom ranking|b2b|english|français|中文)$/i.test(txt)) return;
+      // Skip spatial/temporal noise labels from chart axes
       if (/^(spatial|temporal)\s*noise$/i.test(txt)) return;
-      if (/^(contact us?|our company|glossary|press relations|join us|rankings|reviews|about|articles|insights|smartphones|cameras|speakers|laptops|wireless speakers|camera sensors|camera lenses|test results|best of|tech articles|custom ranking|b2b)$/i.test(txt)) return;
-      // Must contain a space (real sentence, not a single keyword)
-      if (!/\s/.test(txt)) return;
+      // Must be a real sentence — needs a space and be longer than a nav label
+      if (txt.split(' ').length < 3) return;
       if (prosCons === 'pros') pros.push(txt);
       else if (prosCons === 'cons') cons.push(txt);
     }
@@ -963,38 +964,30 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
       if (!imgEl.length) return;
 
       const fullResUrl = resolveRelative(href);
-      const thumbUrl   = imgEl.attr('src') || imgEl.attr('data-src') || null;
-      const thumbResolved = thumbUrl && isValidDxoImage(thumbUrl) ? resolveRelative(thumbUrl) : null;
 
-      // Caption: the text node / next <p>/<em> sibling of the parent element
-      // DXOMark structure: <p><a href="full.jpg"><img></a></p><p>Caption text here</p>
+      // ── Caption extraction ──────────────────────────────────────────────────
+      // DXOMark uses WordPress blocks. Two structures seen:
+      //   A) <figure class="wp-block-image"><a href="full"><img></a><figcaption>text</figcaption></figure>
+      //   B) <p><a href="full"><img></a></p>  <p>Caption text</p>
       let caption: string | null = null;
 
-      // First try: next sibling of the <a> tag itself (inline caption)
-      const aNode = $(el);
-      const aSiblings = aNode.parent().contents().toArray();
-      const aIdx = aSiblings.findIndex((s: any) => s === el);
-      for (let k = aIdx + 1; k < Math.min(aIdx + 3, aSiblings.length); k++) {
-        const sib = aSiblings[k];
-        const sibText = sib.type === 'text'
-          ? (sib.data || '').trim()
-          : $(sib).text().trim();
-        if (sibText && sibText.length > 4 && !/^\s*$/.test(sibText)) {
-          caption = sibText.replace(/\s+/g, ' ').trim();
-          break;
-        }
+      // A) figcaption inside same figure ancestor
+      const fig = $(el).closest('figure');
+      if (fig.length) {
+        const fc = fig.find('figcaption').first().text().trim();
+        if (fc.length > 4) caption = fc;
       }
 
-      // Second try: next sibling element of the parent <p>
+      // B) next element sibling of parent, or grandparent
       if (!caption) {
-        const parentEl = $(el).parent();
-        const nextSib = parentEl.next();
-        if (nextSib.length) {
-          const nextText = nextSib.text().trim();
-          // Caption is typically short (< 200 chars) and contains the device name or a dash
-          if (nextText.length > 4 && nextText.length < 250 && !/</.test(nextText)) {
-            caption = nextText.replace(/\s+/g, ' ').trim();
-          }
+        // try parent's next sibling
+        let next = $(el).parent().next();
+        // if parent is also just <a> (no wrapper), go up one more
+        if (!next.length || next.is('a')) next = $(el).parent().parent().next();
+        const nextTxt = next.length ? next.clone().find('a,img,figure').remove().end().text().trim() : '';
+        // Caption: short, has letters, not a heading-level text
+        if (nextTxt.length > 5 && nextTxt.length < 250 && /[a-zA-Z]/.test(nextTxt) && !/^\s*(best|top score|portrait|lowlight|zoom|outdoor|indoor|photo|video)/i.test(nextTxt)) {
+          caption = nextTxt.replace(/\s+/g, ' ').trim();
         }
       }
 
@@ -1002,7 +995,6 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
         category: currentCategory,
         url: fullResUrl,
         caption,
-        thumbnail: thumbResolved !== fullResUrl ? thumbResolved : null,
       });
     }
   });
