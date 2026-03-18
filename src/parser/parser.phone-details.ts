@@ -274,7 +274,7 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
       }
     }
     
-    // FINAL fallback: Search news section specifically
+    // FINAL fallback: Search news section specifically (on-page links)
     if (!review_url) {
       $('a[href*="news"]').each((_, el) => {
         const href = $(el).attr('href') || '';
@@ -287,6 +287,52 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
           }
         }
       });
+    }
+
+    // ULTIMATE fallback: GSMArena search for camera news
+    // Triggered when the specs page has NO review/camera links at all (e.g. iQOO Z7 Pro).
+    // Some phones only have a news camera article, and the specs page simply doesn't link to it.
+    if (!review_url && model) {
+      try {
+        const deviceName = `${brand} ${model}`.trim();
+        const searchQuery = encodeURIComponent(`${deviceName} camera samples`);
+        const searchUrl = `${baseUrl}/search.php3?sQuickSearch=1&chkNews=1&q=${searchQuery}`;
+        console.log(`[getPhoneDetails] Trying GSMArena search fallback: ${searchUrl}`);
+        const searchHtml = await getHtml(searchUrl);
+        const $search = cheerio.load(searchHtml);
+
+        // GSMArena search results: look for news links about camera samples
+        $search('a[href]').each((_, el) => {
+          const href = ($search(el).attr('href') || '').toLowerCase();
+          if (!href.endsWith('.php')) return;
+          if (!href.includes('camera') && !href.includes('review')) return;
+          
+          const score = reviewScore(href);
+          if (score === 0) return;
+
+          const isRelated = isLinkRelatedToDevice(href, slug, brand, model);
+          const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
+          candidates.push({ href: fullUrl, score, isRelated });
+        });
+
+        console.log(`[getPhoneDetails] Search fallback found ${candidates.length} new candidates`);
+
+        // Re-sort and pick best
+        candidates.sort((a, b) => {
+          if (a.isRelated !== b.isRelated) return a.isRelated ? -1 : 1;
+          return b.score - a.score;
+        });
+
+        if (candidates.length > 0 && candidates[0].isRelated) {
+          review_url = candidates[0].href;
+          console.log(`[getPhoneDetails] Search fallback selected: ${review_url}`);
+        } else if (candidates.length > 0 && candidates[0].score >= 70) {
+          review_url = candidates[0].href;
+          console.log(`[getPhoneDetails] Search fallback selected (unrelated high-score): ${review_url}`);
+        }
+      } catch (e: any) {
+        console.log(`[getPhoneDetails] Search fallback failed: ${e?.message}`);
+      }
     }
 
     // ── HD pictures page link ────────────────────────────────────────────────
