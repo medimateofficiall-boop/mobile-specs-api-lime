@@ -549,7 +549,16 @@ export async function getReviewDetails(reviewSlug: string): Promise<IReviewResul
   if (isNewsPage) {
     const newsUrl = `${baseUrl}/${reviewSlug}.php`;
     let newsHtml = '';
-    try { newsHtml = await getHtml(newsUrl); } catch { newsHtml = ''; }
+    try { newsHtml = await getHtml(newsUrl); } catch (e: any) { 
+      console.log(`[getReviewDetails] news page fetch error: ${e?.message}`);
+      newsHtml = ''; 
+    }
+    console.log(`[getReviewDetails] news page ${newsUrl} html length: ${newsHtml.length}`);
+    // Log first img src found to diagnose image URL pattern
+    if (newsHtml) {
+      const imgMatch = newsHtml.match(/<img[^>]+src="([^"]+)"/i);
+      console.log(`[getReviewDetails] first img src: ${imgMatch ? imgMatch[1] : 'none found'}`);
+    }
     const cameraSamples = newsHtml ? await scrapeCameraPage(newsUrl) : [];
     const lensDetails = newsHtml ? await scrapeLensDetails(newsUrl) : [];
     const firstLifestyle = lensDetails.find(l => l.sectionImageUrl)?.sectionImageUrl;
