@@ -170,16 +170,32 @@ async function findCameraPageNumber(baseReviewSlug: string, reviewId: string): P
   // Look for nav links pointing to pN pages and find the one labelled "camera"
   let cameraPage: number | null = null;
 
+  // Strategy 1: Look for nav links with camera/photo keywords
   $(`a[href*="-review-${reviewId}p"]`).each((_, el) => {
     const href = $(el).attr('href') || '';
     const text = $(el).text().trim().toLowerCase();
     const match = href.match(/-review-\d+p(\d+)\.php/);
     if (!match) return;
     const pageNum = parseInt(match[1], 10);
-    if (/camera|photo|sample/.test(text)) {
+    if (/camera|photo|sample|video quality/.test(text)) {
       cameraPage = pageNum;
     }
   });
+  
+  // Strategy 2: If not found, look for ANY links containing camera/photo
+  if (cameraPage === null) {
+    $('a').each((_, el) => {
+      const href = $(el).attr('href') || '';
+      const text = $(el).text().trim().toLowerCase();
+      if (!href.includes(`-review-${reviewId}p`)) return;
+      const match = href.match(/-review-\d+p(\d+)\.php/);
+      if (!match) return;
+      const pageNum = parseInt(match[1], 10);
+      if (text.includes('camera') || text.includes('photo') || text.includes('video quality')) {
+        cameraPage = pageNum;
+      }
+    });
+  }
 
   // Fallback: probe pages 2–8 and return the first one that has camera sample images
   if (cameraPage === null) {
