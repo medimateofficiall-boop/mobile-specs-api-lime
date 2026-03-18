@@ -977,6 +977,16 @@ app.get('/debug-camera', async (request: any, reply: any) => {
   return results;
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Known camera URL overrides
+// Some devices have camera articles that GSMArena never links from the specs page
+// and are unreachable via any search/scrape method. Add them here by device slug.
+// Format: 'device-slug-id': 'https://www.gsmarena.com/full-camera-article-url.php'
+// ─────────────────────────────────────────────────────────────────────────────
+const CAMERA_URL_OVERRIDES: Record<string, string> = {
+  'vivo_iqoo_z7_pro-12484': 'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
+};
+
 app.get('/phone', async (request, reply) => {
   const name = (request.query as any).name;
   const nocache = (request.query as any).nocache; // Add ?nocache=1 to bypass cache
@@ -1081,6 +1091,17 @@ app.get('/phone', async (request, reply) => {
 
   if (specs.review_url) {
     await tryCameraUrl(specs.review_url);
+  }
+
+  // Apply known override if still no samples
+  if (cameraSamples.length === 0 && CAMERA_URL_OVERRIDES[deviceSlug]) {
+    const overrideUrl = CAMERA_URL_OVERRIDES[deviceSlug];
+    debug.steps.push({ action: 'override_attempt', url: overrideUrl });
+    if (await tryCameraUrl(overrideUrl)) {
+      specs.review_url = overrideUrl;
+      debug.review_url = overrideUrl;
+      debug.steps.push({ action: 'override_found', url: overrideUrl });
+    }
   }
   
   // Restore console
