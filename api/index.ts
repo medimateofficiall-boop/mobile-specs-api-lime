@@ -1034,17 +1034,32 @@ app.get('/phone', async (request, reply) => {
   let cameraSamples: any[] = [];
   let lensDetails: any[] = [];
   let hdImageUrl: string | null = specs.imageUrl || null;
+  
+  // DEBUG INFO
+  const debug: any = {
+    review_url: specs.review_url || null,
+    steps: []
+  };
 
   const tryCameraUrl = async (url: string): Promise<boolean> => {
     try {
       const slug = url.replace(/^https?:\/\/[^/]+\//, '').replace(/\.php$/, '');
+      debug.steps.push({ action: 'tryCameraUrl', url, slug });
       const reviewData = await getReviewDetails(slug);
+      debug.steps.push({ 
+        action: 'reviewData', 
+        cameraSamplesCount: reviewData.cameraSamples.length,
+        lensDetailsCount: reviewData.lensDetails?.length || 0,
+        categories: reviewData.cameraSamples.map(c => ({ label: c.label, count: c.images.length }))
+      });
       if (reviewData.cameraSamples.length > 0) {
         cameraSamples = reviewData.cameraSamples;
         lensDetails = reviewData.lensDetails ?? [];
         return true;
       }
-    } catch { /* ignore */ }
+    } catch (err: any) { 
+      debug.steps.push({ action: 'error', message: err?.message });
+    }
     return false;
   };
 
@@ -1089,6 +1104,7 @@ app.get('/phone', async (request, reply) => {
       cameraSamples,
       lensDetails,
     },
+    debug, // Include debug info
   };
 
   // Cache under the normalised key — next request returns instantly
