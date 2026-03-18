@@ -980,6 +980,8 @@ app.get('/debug-camera', async (request: any, reply: any) => {
 
 app.get('/phone', async (request, reply) => {
   const name = (request.query as any).name;
+  const nocache = (request.query as any).nocache; // Add ?nocache=1 to bypass cache
+  
   if (!name) {
     return reply.status(400).send({ status: false, error: 'Query param "name" is required. e.g. /phone?name=samsung galaxy s26 ultra' });
   }
@@ -987,7 +989,9 @@ app.get('/phone', async (request, reply) => {
   // Normalise name: lowercase + collapse whitespace (handles URL encoding quirks)
   const normName = name.toLowerCase().trim().replace(/\s+/g, ' ');
   const fullCk = `gsm:phone-full:v1:${normName}`;
-  const fullCached = await cacheGetWithSource<any>(fullCk);
+  
+  // Skip cache if nocache param is present
+  const fullCached = nocache ? { data: null, source: 'miss' as const } : await cacheGetWithSource<any>(fullCk);
 
   // Debug header so you can see exactly what key was checked
   console.log(`[/phone] raw="${name}" norm="${normName}" ck="${fullCk}" cache=${fullCached.source}`);
