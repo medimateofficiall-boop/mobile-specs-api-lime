@@ -4,7 +4,7 @@ import { cacheGetWithSource, cacheSet } from '../src/cache';
 import { getPhoneDetails } from '../src/parser/parser.phone-details';
 import { getBrands } from '../src/parser/parser.brands';
 import { getReviewDetails } from '../src/parser/parser.review';
-import { getDxoScores, searchDxo, scrapeDxoPage } from '../src/parser/parser.dxomark';
+import { getDxoScores, searchDxo, scrapeDxoPage, getDxoReview, scrapeDxoReview, getCameraReviewUrl } from '../src/parser/parser.dxomark';
 import type { IncomingMessage, ServerResponse } from 'http';
 
 const app = Fastify({ logger: false });
@@ -1437,7 +1437,55 @@ app.get('/dxomark/search', async (request, reply) => {
 });
 
 /**
- * GET /dxomark/url?url=https://www.dxomark.com/samsung-galaxy-s25-ultra-test/
+ * GET /dxomark/review?name=samsung galaxy s25 ultra
+ *
+ * Fetches the full DXOMark camera test review page for a device.
+ * Much richer than /dxomark — includes all sub-scores with BEST values,
+ * camera specs, detailed pros/cons, and ranking position.
+ * Add &nocache=1 to force a fresh scrape.
+ */
+app.get('/dxomark/review', async (request, reply) => {
+  const name = (request.query as any).name;
+  const nocache = (request.query as any).nocache === '1';
+  if (!name) {
+    return reply.status(400).send({
+      status: false,
+      error: 'Query param "name" is required. e.g. /dxomark/review?name=samsung galaxy s25 ultra',
+    });
+  }
+  try {
+    const data = await getDxoReview(name, nocache);
+    if (!data) {
+      return reply.status(404).send({
+        status: false,
+        error: `No camera review found for "${name}" on DXOMark. The device may not have been reviewed yet.`,
+      });
+    }
+    return { status: true, _cache: nocache ? 'bypassed' : 'hit', data };
+  } catch (err: any) {
+    return reply.status(500).send({ status: false, error: err?.message || String(err) });
+  }
+});
+
+/**
+ * GET /dxomark/review/url?url=https://www.dxomark.com/samsung-galaxy-s25-ultra-camera-test/
+ *
+ * Scrape a specific DXOMark camera review URL directly.
+ */
+app.get('/dxomark/review/url', async (request, reply) => {
+  const url = (request.query as any).url;
+  const nocache = (request.query as any).nocache === '1';
+  if (!url || !url.includes('dxomark.com')) {
+    return reply.status(400).send({ status: false, error: 'Valid dxomark.com URL required.' });
+  }
+  try {
+    const data = await scrapeDxoReview(url, nocache);
+    if (!data) return reply.status(500).send({ status: false, error: 'Failed to scrape review page.' });
+    return { status: true, data };
+  } catch (err: any) {
+    return reply.status(500).send({ status: false, error: err?.message || String(err) });
+  }
+});
  *
  * Scrapes a specific DXOMark URL directly. Use this if you already have
  * the exact DXOMark page URL and want to bypass the search/slug resolution.

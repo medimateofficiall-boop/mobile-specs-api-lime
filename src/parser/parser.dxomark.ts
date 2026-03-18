@@ -663,6 +663,231 @@ function parseHtmlFallback(html: string, pageUrl: string, brand: string, model: 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Review page scraper — /device-name-camera-test/ or -retested/
+// Much richer than the /smartphones/ summary page.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface IDxoReview {
+  device: string;
+  reviewUrl: string;
+  overallScore: number | null;
+  rankPosition: number | null;
+  rankLabel: string | null;
+  cameraSpecs: string[];
+  scores: {
+    photo: number | null;
+    photoMain: number | null;
+    photoBokeh: number | null;
+    photoUltraWide: number | null;
+    photoTele: number | null;
+    video: number | null;
+    videoMain: number | null;
+    videoUltraWide: number | null;
+    videoTele: number | null;
+  };
+  bestScores: {
+    photo: number | null;
+    photoMain: number | null;
+    photoBokeh: number | null;
+    photoUltraWide: number | null;
+    photoTele: number | null;
+    video: number | null;
+    videoMain: number | null;
+    videoUltraWide: number | null;
+    videoTele: number | null;
+  };
+  pros: string[];
+  cons: string[];
+  scrapedAt: string;
+}
+
+/** Get the camera review URL from a /smartphones/ device page */
+export async function getCameraReviewUrl(devicePageUrl: string): Promise<string | null> {
+  const ck = `dxo:reviewurl:v1:${devicePageUrl}`;
+  const cached = await cacheGet<string>(ck);
+  if (cached) return cached;
+
+  try {
+    const html = await getDxoHtml(devicePageUrl);
+    const $ = cheerio.load(html);
+
+    // The review link text: "Read the test results {Device} camera"
+    // href pattern: /device-name-camera-test/ or /device-name-camera-test-retested/
+    let reviewUrl: string | null = null;
+    $('a[href*="camera-test"]').each((_: any, el: any) => {
+      if (reviewUrl) return false;
+      const href = $(el).attr('href') || '';
+      if (href.includes('camera-test')) {
+        reviewUrl = href.startsWith('http') ? href : `${DXO_BASE}${href}`;
+      }
+    });
+
+    if (reviewUrl) {
+      cacheSet(ck, reviewUrl);
+      return reviewUrl;
+    }
+  } catch { /* fall through */ }
+  return null;
+}
+
+/** Scrape the full camera review page */
+export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promise<IDxoReview | null> {
+  const ck = `dxo:review:v1:${reviewUrl}`;
+  if (!nocache) {
+    const cached = await cacheGet<IDxoReview>(ck);
+    if (cached) return cached;
+  }
+
+  let html = '';
+  try {
+    html = await getDxoHtml(reviewUrl);
+  } catch { return null; }
+
+  const $ = cheerio.load(html);
+
+  // Device name from title
+  const device = $('h1').first().text().replace(/camera test.*/i, '').trim() ||
+    $('title').first().text().replace(/camera test.*dxomark/i, '').replace(/[-–|]/g, '').trim();
+
+  // Overall score — appears as standalone number before "camera" label
+  let overallScore: number | null = null;
+  $('*').each((_: any, el: any) => {
+    if (overallScore) return false;
+    if ($(el).children().length > 0) return;
+    const txt = $(el).text().trim();
+    const n = parseInt(txt, 10);
+    if (!isNaN(n) && n >= 50 && n <= 200 && txt === String(n)) overallScore = n;
+  });
+
+  // Ranking — "16th\nRanking Position\nin Global Ranking"
+  let rankPosition: number | null = null;
+  let rankLabel: string | null = null;
+  const bodyText = $('body').text();
+  const rankMatch = bodyText.match(/(\d+)(st|nd|rd|th)\s*\n?\s*Ranking Position/i);
+  if (rankMatch) {
+    rankPosition = parseInt(rankMatch[1], 10);
+    rankLabel = `#${rankPosition} in Global Ranking`;
+  }
+
+  // Camera specs — bullet list under "Key camera specifications"
+  const cameraSpecs: string[] = [];
+  let inSpecs = false;
+  $('h6, h5, h4, h3, li, p').each((_: any, el: any) => {
+    const txt = $(el).text().trim();
+    if (/key camera spec/i.test(txt)) { inSpecs = true; return; }
+    if (inSpecs && el.name === 'li' && txt.length > 3) cameraSpecs.push(txt);
+    if (inSpecs && /^(scoring|overview|test summary|pros|cons)/i.test(txt)) inSpecs = false;
+  });
+
+  // Scores — build flat text list and parse with context
+  // Structure: "152\n[Photo](#photo)\n[Main](#photo-main)\n155\n184\nBest:..."
+  const allText: string[] = [];
+  $('*').each((_: any, el: any) => {
+    if ($(el).children().length > 0) return;
+    const txt = $(el).text().trim();
+    if (txt.length > 0 && txt.length < 200) allText.push(txt);
+  });
+
+  const scores = {
+    photo: null as number | null, photoMain: null as number | null,
+    photoBokeh: null as number | null, photoUltraWide: null as number | null,
+    photoTele: null as number | null,
+    video: null as number | null, videoMain: null as number | null,
+    videoUltraWide: null as number | null, videoTele: null as number | null,
+  };
+  const bestScores = { ...scores };
+
+  // Walk text finding label → score → best pairs
+  // Labels are anchor texts like "Photo", "Main", "Bokeh", "Ultra-Wide", "Tele", "Video"
+  let ctx = ''; // 'photo' or 'video'
+  for (let i = 0; i < allText.length; i++) {
+    const t = allText[i].replace(/\s*i\s*$/, '').trim();
+
+    // Context anchors
+    if (/^photo$/i.test(t)) ctx = 'photo';
+    if (/^video$/i.test(t)) ctx = 'video';
+
+    // Score + best extraction: label, then next number = score, then skip device name, then Best: device (score)
+    const getScorePair = (field: keyof typeof scores, bestField: keyof typeof bestScores) => {
+      // Look ahead up to 8 positions for score
+      let scoreFound = false;
+      for (let j = i + 1; j < Math.min(i + 8, allText.length); j++) {
+        const v = parseInt(allText[j].replace(/\D/g, ''), 10);
+        if (!isNaN(v) && v >= 50 && v <= 200) {
+          if (!scoreFound && scores[field] === null) {
+            scores[field] = v;
+            scoreFound = true;
+          } else if (scoreFound && bestScores[bestField] === null) {
+            bestScores[bestField] = v;
+            break;
+          }
+        }
+        // "Best:" marker — next number is the best
+        if (/^best:/i.test(allText[j])) {
+          const bestMatch = allText[j].match(/\((\d+)\)/);
+          if (bestMatch && bestScores[bestField] === null) {
+            bestScores[bestField] = parseInt(bestMatch[1], 10);
+          }
+          break;
+        }
+      }
+    };
+
+    if (/^photo$/i.test(t) && scores.photo === null) getScorePair('photo', 'photo');
+    else if (/^video$/i.test(t) && scores.video === null) getScorePair('video', 'video');
+    else if (/^main$/i.test(t)) {
+      if (ctx === 'photo' && scores.photoMain === null) getScorePair('photoMain', 'photoMain');
+      else if (ctx === 'video' && scores.videoMain === null) getScorePair('videoMain', 'videoMain');
+    } else if (/^bokeh$/i.test(t) && scores.photoBokeh === null) getScorePair('photoBokeh', 'photoBokeh');
+    else if (/^ultra.?wide$/i.test(t)) {
+      if (ctx === 'photo' && scores.photoUltraWide === null) getScorePair('photoUltraWide', 'photoUltraWide');
+      else if (ctx === 'video' && scores.videoUltraWide === null) getScorePair('videoUltraWide', 'videoUltraWide');
+    } else if (/^tele$/i.test(t)) {
+      if (ctx === 'photo' && scores.photoTele === null) getScorePair('photoTele', 'photoTele');
+      else if (ctx === 'video' && scores.videoTele === null) getScorePair('videoTele', 'videoTele');
+    }
+  }
+
+  // Pros and Cons — h6 "#### Pros" / "#### Cons"
+  const pros: string[] = [];
+  const cons: string[] = [];
+  let prosCons = '';
+  $('h6, h5, h4, li').each((_: any, el: any) => {
+    const tag = el.name;
+    const txt = $(el).text().trim();
+    if (/^pros$/i.test(txt)) { prosCons = 'pros'; return; }
+    if (/^cons$/i.test(txt)) { prosCons = 'cons'; return; }
+    if (/^(overview|test summary|use cases|scoring)/i.test(txt)) { prosCons = ''; return; }
+    if (tag === 'li' && txt.length > 5) {
+      if (prosCons === 'pros') pros.push(txt);
+      else if (prosCons === 'cons') cons.push(txt);
+    }
+  });
+
+  const result: IDxoReview = {
+    device, reviewUrl, overallScore, rankPosition, rankLabel,
+    cameraSpecs: [...new Set(cameraSpecs)].slice(0, 10),
+    scores, bestScores,
+    pros: [...new Set(pros)].slice(0, 15),
+    cons: [...new Set(cons)].slice(0, 15),
+    scrapedAt: new Date().toISOString(),
+  };
+
+  cacheSet(ck, result);
+  return result;
+}
+
+/** One-shot: get review data by device name */
+export async function getDxoReview(deviceName: string, nocache = false): Promise<IDxoReview | null> {
+  const { brand, model } = splitBrandModel(deviceName);
+  if (!model) return null;
+  const devicePageUrl = buildDxoUrl(brand, model);
+  const reviewUrl = await getCameraReviewUrl(devicePageUrl);
+  if (!reviewUrl) return null;
+  return scrapeDxoReview(reviewUrl, nocache);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Public: search (for /dxomark/search endpoint)
 // ─────────────────────────────────────────────────────────────────────────────
 
