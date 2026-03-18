@@ -1294,9 +1294,74 @@ app.get('/phone', async (request, reply) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * GET /dxomark?name=samsung galaxy s25 ultra
- *
- * Finds the DXOMark page for a device and returns all scores:
+ * GET /dxomark/debug?name=pixel 9 pro
+ * Self-contained debug — shows exactly what URL would be attempted,
+ * then tries to fetch it and returns the HTTP status + first 500 chars of body.
+ * No imports from parser.dxomark — useful to verify deployment is live.
+ */
+app.get('/dxomark/debug', async (request, reply) => {
+  const name = ((request.query as any).name || 'pixel 9 pro') as string;
+
+  const DXO_BRAND_MAP: Record<string, { brand: string; modelPrefix?: string }> = {
+    'google pixel': { brand: 'Pixel' },
+    'google':       { brand: 'Pixel' },
+    'xiaomi poco':  { brand: 'Poco' },
+    'xiaomi redmi': { brand: 'Redmi' },
+    'vivo iqoo':    { brand: 'iQOO' },
+    'samsung galaxy': { brand: 'Samsung', modelPrefix: 'Galaxy' },
+    'apple iphone': { brand: 'Apple', modelPrefix: 'iPhone' },
+  };
+
+  const lower = name.toLowerCase().trim();
+  let brand = '';
+  let model = '';
+
+  const keys = Object.keys(DXO_BRAND_MAP).sort((a, b) => b.length - a.length);
+  for (const k of keys) {
+    if (lower.startsWith(k)) {
+      const map = DXO_BRAND_MAP[k];
+      brand = map.brand;
+      const rest = name.slice(k.length).trim();
+      model = map.modelPrefix ? `${map.modelPrefix} ${rest}` : rest;
+      break;
+    }
+  }
+
+  if (!brand) {
+    const parts = name.split(' ');
+    brand = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+    model = parts.slice(1).join(' ');
+  }
+
+  const url = `https://www.dxomark.com/smartphones/${brand}/${model.replace(/\s+/g, '-')}`;
+
+  // Try fetching it
+  const axios = (await import('axios')).default;
+  let fetchStatus: number | null = null;
+  let fetchError: string | null = null;
+  let bodyPreview: string | null = null;
+  let hasNextData = false;
+
+  try {
+    const resp = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,*/*',
+      },
+      timeout: 15000,
+      maxRedirects: 5,
+      validateStatus: () => true, // don't throw on 4xx/5xx
+    });
+    fetchStatus = resp.status;
+    const body = typeof resp.data === 'string' ? resp.data : JSON.stringify(resp.data);
+    bodyPreview = body.slice(0, 500);
+    hasNextData = body.includes('__NEXT_DATA__');
+  } catch (e: any) {
+    fetchError = e?.message || String(e);
+  }
+
+  return { name, brand, model, url, fetchStatus, fetchError, hasNextData, bodyPreview };
+});
  * overall, photo, video, audio, display, strengths/weaknesses, rank label.
  *
  * Strategy: tries canonical slug first (brand-model-test/), falls back to
