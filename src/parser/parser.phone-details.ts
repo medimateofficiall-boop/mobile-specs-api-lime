@@ -219,6 +219,9 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
       const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
       candidates.push({ href: fullUrl, score, isRelated });
     });
+    
+    console.log(`[getPhoneDetails] Found ${candidates.length} link candidates for ${slug}`);
+    console.log(`[getPhoneDetails] Candidates:`, candidates.slice(0, 5).map(c => ({ href: c.href, score: c.score, isRelated: c.isRelated })));
 
     // Sort by: related first, then by score
     candidates.sort((a, b) => {
@@ -229,13 +232,19 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
     // Take the best match
     if (candidates.length > 0 && candidates[0].isRelated) {
       review_url = candidates[0].href;
+      console.log(`[getPhoneDetails] Selected review_url (related): ${review_url}`);
     } else if (candidates.length > 0) {
       // Fallback: if no "related" match, take highest scoring link anyway
       // (some phones might have unusual naming)
       const bestUnrelated = candidates[0];
       if (bestUnrelated.score >= 70) { // Only if it's review or camera_samples
         review_url = bestUnrelated.href;
+        console.log(`[getPhoneDetails] Selected review_url (unrelated, high score): ${review_url}`);
+      } else {
+        console.log(`[getPhoneDetails] No review_url: best unrelated score was ${bestUnrelated.score} (need 70+)`);
       }
+    } else {
+      console.log(`[getPhoneDetails] No review_url: no candidates found`);
     }
 
     // Additional fallback: search in page text for links
