@@ -564,7 +564,7 @@ function parseHtmlFallback(html: string, pageUrl: string, brand: string, model: 
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function searchDxo(query: string): Promise<IDxoSearchResult[]> {
-  const ck = `dxo:search:v3:${query.toLowerCase().trim()}`;
+  const ck = `dxo:search:v4:${query.toLowerCase().trim()}`;
   const cached = await cacheGet<IDxoSearchResult[]>(ck);
   if (cached) return cached;
 
@@ -599,7 +599,7 @@ export async function searchDxo(query: string): Promise<IDxoSearchResult[]> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function scrapeDxoPage(pageUrl: string): Promise<IDxoScore> {
-  const ck = `dxo:page:v3:${pageUrl}`;
+  const ck = `dxo:page:v4:${pageUrl}`;
   const cached = await cacheGet<IDxoScore>(ck);
   if (cached) return cached;
 
@@ -651,7 +651,7 @@ export async function scrapeDxoPage(pageUrl: string): Promise<IDxoScore> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function getDxoScores(deviceName: string): Promise<IDxoScore | null> {
-  const ck = `dxo:result:v3:${deviceName.toLowerCase().trim()}`;
+  const ck = `dxo:result:v4:${deviceName.toLowerCase().trim()}`;
   const cached = await cacheGet<IDxoScore>(ck);
   if (cached) return cached;
 
