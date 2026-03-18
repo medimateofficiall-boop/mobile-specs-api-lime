@@ -289,49 +289,55 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
       });
     }
 
-    // ULTIMATE fallback: GSMArena search for camera news
-    // Triggered when the specs page has NO review/camera links at all (e.g. iQOO Z7 Pro).
-    // Some phones only have a news camera article, and the specs page simply doesn't link to it.
+    // ULTIMATE fallback: GSMArena NEWS LIST search
+    // newslist.php3?sSearch= directly indexes news/camera articles — unlike search.php3
+    // which only searches device pages. This finds articles like:
+    //   "vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php"
+    // even when the specs page has zero links to it.
     if (!review_url && model) {
       try {
-        const deviceName = `${brand} ${model}`.trim();
-        const searchQuery = encodeURIComponent(`${deviceName} camera samples`);
-        const searchUrl = `${baseUrl}/search.php3?sQuickSearch=1&chkNews=1&q=${searchQuery}`;
-        console.log(`[getPhoneDetails] Trying GSMArena search fallback: ${searchUrl}`);
-        const searchHtml = await getHtml(searchUrl);
-        const $search = cheerio.load(searchHtml);
+        // Use just the model without brand prefix for better news search results
+        // e.g. "vivo iQOO Z7 Pro" → search "iQOO Z7 Pro camera"
+        const modelWords = model.replace(/^vivo\s+/i, '').replace(/^xiaomi\s+/i, '')
+          .replace(/^samsung\s+/i, '').replace(/^apple\s+/i, '');
+        const newsQuery = encodeURIComponent(modelWords + ' camera');
+        const newsUrl = `${baseUrl}/newslist.php3?sSearch=${newsQuery}`;
+        console.log(`[getPhoneDetails] Trying newslist fallback: ${newsUrl}`);
+        const newsHtml = await getHtml(newsUrl);
+        const $news = cheerio.load(newsHtml);
 
-        // GSMArena search results: look for news links about camera samples
-        $search('a[href]').each((_, el) => {
-          const href = ($search(el).attr('href') || '').toLowerCase();
+        // News list items are <li> with <a href="...news-NNN.php">
+        const newsCandidates: LinkCandidate[] = [];
+        $news('a[href]').each((_, el) => {
+          const href = ($news(el).attr('href') || '').toLowerCase();
           if (!href.endsWith('.php')) return;
           if (!href.includes('camera') && !href.includes('review')) return;
-          
+
           const score = reviewScore(href);
           if (score === 0) return;
 
-          const isRelated = isLinkRelatedToDevice(href, slug, brand, model);
+          const isRelated = isLinkRelatedToDevice(href, slug, brand, modelWords);
           const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
-          candidates.push({ href: fullUrl, score, isRelated });
+          newsCandidates.push({ href: fullUrl, score, isRelated });
         });
 
-        console.log(`[getPhoneDetails] Search fallback found ${candidates.length} new candidates`);
+        console.log(`[getPhoneDetails] Newslist fallback found ${newsCandidates.length} candidates:`, 
+          newsCandidates.slice(0, 5).map(c => ({ href: c.href, score: c.score, isRelated: c.isRelated })));
 
-        // Re-sort and pick best
-        candidates.sort((a, b) => {
+        newsCandidates.sort((a, b) => {
           if (a.isRelated !== b.isRelated) return a.isRelated ? -1 : 1;
           return b.score - a.score;
         });
 
-        if (candidates.length > 0 && candidates[0].isRelated) {
-          review_url = candidates[0].href;
-          console.log(`[getPhoneDetails] Search fallback selected: ${review_url}`);
-        } else if (candidates.length > 0 && candidates[0].score >= 70) {
-          review_url = candidates[0].href;
-          console.log(`[getPhoneDetails] Search fallback selected (unrelated high-score): ${review_url}`);
+        if (newsCandidates.length > 0 && newsCandidates[0].isRelated) {
+          review_url = newsCandidates[0].href;
+          console.log(`[getPhoneDetails] Newslist fallback selected: ${review_url}`);
+        } else if (newsCandidates.length > 0 && newsCandidates[0].score >= 70) {
+          review_url = newsCandidates[0].href;
+          console.log(`[getPhoneDetails] Newslist fallback selected (unrelated high-score): ${review_url}`);
         }
       } catch (e: any) {
-        console.log(`[getPhoneDetails] Search fallback failed: ${e?.message}`);
+        console.log(`[getPhoneDetails] Newslist fallback failed: ${e?.message}`);
       }
     }
 

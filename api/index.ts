@@ -1143,15 +1143,44 @@ app.get('/phone', async (request, reply) => {
       const searchHtml5g = await getHtml(searchUrl5g);
       const $sr = load(searchHtml5g);
 
-      // Collect all result slugs that contain _5g — no scoring, just grab hrefs directly
-      const slugs5g: string[] = [];
-      $sr('.makers ul li a[href]').each((_: number, el: any) => {
+      // Log ALL hrefs from search to diagnose what GSMArena is returning
+      const allHrefs5g: string[] = [];
+      $sr('a[href]').each((_: number, el: any) => {
         const href: string = $sr(el).attr('href') || '';
+        if (href.endsWith('.php') && !href.includes('gsmarena.com/gsmarena') && href.length > 5) {
+          allHrefs5g.push(href);
+        }
+      });
+      debug.steps.push({ action: '5g_search_all_hrefs', sample: allHrefs5g.slice(0, 20) });
+
+      // Collect slugs with _5g — also try ALL result hrefs as fallback
+      const slugs5g: string[] = [];
+      // First pass: only _5g hrefs
+      $sr('.makers ul li a[href], ul li a[href], a[href]').each((_: number, el: any) => {
+        const href: string = $sr(el).attr('href') || '';
+        if (!href.endsWith('.php')) return;
         if (href.toLowerCase().includes('_5g') || href.toLowerCase().includes('-5g')) {
           const s = href.replace(/\.php$/, '').replace(/^\//, '');
           if (!slugs5g.includes(s)) slugs5g.push(s);
         }
       });
+
+      // Second pass: if no _5g found, take any device page result
+      // (maybe the 5G variant is listed without explicit _5g in href)
+      if (slugs5g.length === 0) {
+        $sr('.makers ul li a[href]').each((_: number, el: any) => {
+          const href: string = $sr(el).attr('href') || '';
+          if (!href.endsWith('.php')) return;
+          const s = href.replace(/\.php$/, '').replace(/^\//, '');
+          // Only device pages (has numeric ID at end)
+          if (/^[a-z0-9_]+-\d+$/.test(s) && !slugs5g.includes(s) && s !== deviceSlug) {
+            slugs5g.push(s);
+          }
+        });
+        if (slugs5g.length > 0) {
+          debug.steps.push({ action: '5g_broadened_to_all_results', slugs: slugs5g });
+        }
+      }
 
       debug.steps.push({ action: '5g_slugs_found', slugs: slugs5g });
 
