@@ -177,7 +177,8 @@ async function findCameraPageNumber(baseReviewSlug: string, reviewId: string): P
     const match = href.match(/-review-\d+p(\d+)\.php/);
     if (!match) return;
     const pageNum = parseInt(match[1], 10);
-    if (/camera|photo|sample|video quality/.test(text)) {
+    // Match: camera, photo, sample, or "video" + "quality" (allows words between)
+    if (/camera|photo|sample/.test(text) || (text.includes('video') && text.includes('quality'))) {
       cameraPage = pageNum;
     }
   });
