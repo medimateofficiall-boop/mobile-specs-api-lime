@@ -779,8 +779,9 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
   let rankPosition: number | null = null;
   let rankLabel: string | null = null;
   const bodyText = $('body').text();
+  // Page renders: "16th\n\nRanking Position\n\nin Global Ranking"
   const rankMatch =
-    bodyText.match(/(\d+)(st|nd|rd|th)\s*\n?\s*Ranking Position/i) ||
+    bodyText.match(/(\d+)(st|nd|rd|th)\s+Ranking Position/i) ||
     bodyText.match(/#(\d+)\s+in\s+Global Ranking/i) ||
     bodyText.match(/(\d+)(st|nd|rd|th)\s+in\s+Global Ranking/i);
   if (rankMatch) {
@@ -862,19 +863,21 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
   const cons: string[] = [];
   let prosCons = '';
 
-  // Garbage patterns that bleed in from page navigation / lux labels / glossary
-  const GARBAGE_RE = /^\d+\s*(lux|k|ev|db|fps)$|^(spatial|temporal)\s*noise$|^(our company|glossary|press relations|join us|contact|rankings|reviews|about|articles|insights|smartphones|cameras|speakers|laptops)$|^(ΔEV\d|brightness on face|diana|eugene|illuminance)/i;
-
   $('h6, h5, h4, h3, li').each((_: any, el: any) => {
     const tag = el.name;
-    const txt = $(el).text().trim();
+    const raw = $(el).text();
+    const txt = raw.trim();
     if (/^pros$/i.test(txt)) { prosCons = 'pros'; return; }
     if (/^cons$/i.test(txt)) { prosCons = 'cons'; return; }
     if (/^(overview|test summary|use cases|scoring|conclusion|about dxomark)/i.test(txt)) { prosCons = ''; return; }
     if (tag === 'li' && txt.length > 5 && txt.length < 200) {
-      // Skip garbage / nav items / lux labels
-      if (GARBAGE_RE.test(txt)) return;
-      // Must look like a sentence (contains space, not just numbers/units)
+      // Skip if contains newlines (nav menu items like "Rankings\n\tCustom Ranking...")
+      if (/\n|\t/.test(raw)) return;
+      // Skip single-word nav/glossary items and lux/unit-only strings
+      if (/^\d+\s*(lux|k|ev|db|fps)$/i.test(txt)) return;
+      if (/^(spatial|temporal)\s*noise$/i.test(txt)) return;
+      if (/^(contact us?|our company|glossary|press relations|join us|rankings|reviews|about|articles|insights|smartphones|cameras|speakers|laptops|wireless speakers|camera sensors|camera lenses|test results|best of|tech articles|custom ranking|b2b)$/i.test(txt)) return;
+      // Must contain a space (real sentence, not a single keyword)
       if (!/\s/.test(txt)) return;
       if (prosCons === 'pros') pros.push(txt);
       else if (prosCons === 'cons') cons.push(txt);
@@ -963,18 +966,35 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
       const thumbUrl   = imgEl.attr('src') || imgEl.attr('data-src') || null;
       const thumbResolved = thumbUrl && isValidDxoImage(thumbUrl) ? resolveRelative(thumbUrl) : null;
 
-      // Caption: look at next sibling(s) for a text node or <em>
+      // Caption: the text node / next <p>/<em> sibling of the parent element
+      // DXOMark structure: <p><a href="full.jpg"><img></a></p><p>Caption text here</p>
       let caption: string | null = null;
-      const parent = $(el).parent();
-      const siblings = parent.contents().toArray();
-      const myIdx = siblings.findIndex((s: any) => s === el);
-      for (let k = myIdx + 1; k < Math.min(myIdx + 4, siblings.length); k++) {
-        const sib = siblings[k];
-        if (!sib) break;
-        const sibText = $(sib).text ? $(sib).text().trim() : (sib.data || '').trim();
+
+      // First try: next sibling of the <a> tag itself (inline caption)
+      const aNode = $(el);
+      const aSiblings = aNode.parent().contents().toArray();
+      const aIdx = aSiblings.findIndex((s: any) => s === el);
+      for (let k = aIdx + 1; k < Math.min(aIdx + 3, aSiblings.length); k++) {
+        const sib = aSiblings[k];
+        const sibText = sib.type === 'text'
+          ? (sib.data || '').trim()
+          : $(sib).text().trim();
         if (sibText && sibText.length > 4 && !/^\s*$/.test(sibText)) {
           caption = sibText.replace(/\s+/g, ' ').trim();
           break;
+        }
+      }
+
+      // Second try: next sibling element of the parent <p>
+      if (!caption) {
+        const parentEl = $(el).parent();
+        const nextSib = parentEl.next();
+        if (nextSib.length) {
+          const nextText = nextSib.text().trim();
+          // Caption is typically short (< 200 chars) and contains the device name or a dash
+          if (nextText.length > 4 && nextText.length < 250 && !/</.test(nextText)) {
+            caption = nextText.replace(/\s+/g, ' ').trim();
+          }
         }
       }
 
