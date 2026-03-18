@@ -162,6 +162,7 @@ async function findCameraPageNumber(baseReviewSlug: string, reviewId: string): P
   try {
     html = await getHtml(reviewUrl);
   } catch {
+    console.error(`[findCameraPageNumber] Failed to fetch ${reviewUrl}`);
     return null;
   }
 
@@ -169,19 +170,28 @@ async function findCameraPageNumber(baseReviewSlug: string, reviewId: string): P
 
   // Look for nav links pointing to pN pages and find the one labelled "camera"
   let cameraPage: number | null = null;
+  
+  console.log(`[findCameraPageNumber] Searching for camera page in ${baseReviewSlug}, reviewId=${reviewId}`);
 
   // Strategy 1: Look for nav links with camera/photo keywords
+  const navLinks: Array<{href: string, text: string, pageNum: number}> = [];
   $(`a[href*="-review-${reviewId}p"]`).each((_, el) => {
     const href = $(el).attr('href') || '';
     const text = $(el).text().trim().toLowerCase();
     const match = href.match(/-review-\d+p(\d+)\.php/);
     if (!match) return;
     const pageNum = parseInt(match[1], 10);
+    navLinks.push({ href, text, pageNum });
+    
     // Match: camera, photo, sample, or "video" + "quality" (allows words between)
     if (/camera|photo|sample/.test(text) || (text.includes('video') && text.includes('quality'))) {
+      console.log(`[findCameraPageNumber] MATCHED: "${text}" -> page ${pageNum}`);
       cameraPage = pageNum;
     }
   });
+  
+  console.log(`[findCameraPageNumber] Found ${navLinks.length} nav links:`, navLinks.map(l => `p${l.pageNum}: "${l.text}"`));
+  console.log(`[findCameraPageNumber] Camera page from Strategy 1: ${cameraPage}`);
   
   // Strategy 2: If not found, look for ANY links containing camera/photo
   if (cameraPage === null) {

@@ -1038,7 +1038,20 @@ app.get('/phone', async (request, reply) => {
   // DEBUG INFO
   const debug: any = {
     review_url: specs.review_url || null,
-    steps: []
+    steps: [],
+    logs: [] as string[]
+  };
+  
+  // Intercept console.log
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: any[]) => {
+    debug.logs.push(args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    originalLog(...args);
+  };
+  console.error = (...args: any[]) => {
+    debug.logs.push('ERROR: ' + args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '));
+    originalError(...args);
   };
 
   const tryCameraUrl = async (url: string): Promise<boolean> => {
@@ -1066,6 +1079,10 @@ app.get('/phone', async (request, reply) => {
   if (specs.review_url) {
     await tryCameraUrl(specs.review_url);
   }
+  
+  // Restore console
+  console.log = originalLog;
+  console.error = originalError;
 
   if (cameraSamples.length === 0) {
     try {
