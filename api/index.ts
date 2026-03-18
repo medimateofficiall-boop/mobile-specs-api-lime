@@ -1385,6 +1385,20 @@ app.get('/dxomark/debug', async (request, reply) => {
   return { name, brand, model, modelSlug, url, fetchStatus, fetchError, hasNextData, scoreFound, bodyPreview };
 });
 
+/**
+ * GET /dxomark?name=samsung galaxy s25 ultra
+ *
+ * All-in-one DXOMark endpoint. Returns everything in a single request:
+ *   - Overall camera score + sub-scores (photo, video, bokeh, zoom…)
+ *   - Best-in-class scores for comparison
+ *   - Rank position + label
+ *   - Strengths & weaknesses (verdict)
+ *   - Detailed pros & cons from the full review
+ *   - Camera specs bullet list
+ *   - ALL camera sample photos grouped by category
+ *
+ * Add &nocache=1 to bypass cache and force fresh scrape.
+ */
 app.get('/dxomark', async (request, reply) => {
   const name = (request.query as any).name;
   const nocache = (request.query as any).nocache === '1';
@@ -1396,17 +1410,87 @@ app.get('/dxomark', async (request, reply) => {
   }
 
   try {
-    const data = await getDxoScores(name, nocache);
-    if (!data) {
+    // Run both scrapers in parallel — scores page + full review page
+    const [scores, review] = await Promise.allSettled([
+      getDxoScores(name, nocache),
+      getDxoReview(name, nocache),
+    ]);
+
+    const scoresData = scores.status === 'fulfilled' ? scores.value : null;
+    const reviewData = review.status === 'fulfilled' ? review.value : null;
+
+    if (!scoresData) {
       return reply.status(400).send({
         status: false,
         error: `Could not parse brand/model from "${name}". Try including the brand e.g. "samsung galaxy s25 ultra".`,
       });
     }
+
+    // Merge everything into one flat response
+    const categories = reviewData
+      ? [...new Set(reviewData.sampleImages.map((s: any) => s.category))]
+      : [];
+
     return {
       status: true,
       _cache: nocache ? 'bypassed' : 'hit',
-      data,
+      data: {
+        // ── Identity ────────────────────────────────────────────────
+        device:        reviewData?.device || scoresData.device,
+        url:           scoresData.url,
+        reviewUrl:     reviewData?.reviewUrl || null,
+
+        // ── Scores ──────────────────────────────────────────────────
+        overallScore:  scoresData.overallScore,
+        scoreType:     (scoresData as any).scoreType || 'camera',
+        scores: {
+          // From summary page
+          ...scoresData.scores,
+          // Override/fill with review page scores (more reliable)
+          ...(reviewData ? {
+            photo:         reviewData.scores.photo         ?? scoresData.scores.photo,
+            video:         reviewData.scores.video         ?? scoresData.scores.video,
+            bokeh:         reviewData.scores.photoBokeh    ?? scoresData.scores.bokeh,
+            zoom:          reviewData.scores.photoTele     ?? scoresData.scores.zoom,
+            photoMain:     reviewData.scores.photoMain     ?? scoresData.scores.photoMain,
+            photoUltraWide:reviewData.scores.photoUltraWide?? scoresData.scores.photoUltraWide,
+            photoTele:     reviewData.scores.photoTele     ?? scoresData.scores.photoTele,
+            videoMain:     reviewData.scores.videoMain     ?? scoresData.scores.videoMain,
+            videoUltraWide:reviewData.scores.videoUltraWide?? scoresData.scores.videoUltraWide,
+            videoTele:     reviewData.scores.videoTele     ?? scoresData.scores.videoTele,
+          } : {}),
+        },
+
+        // ── Best-in-class (only from review page) ───────────────────
+        bestScores: reviewData?.bestScores || null,
+
+        // ── Rank ────────────────────────────────────────────────────
+        rankPosition:  scoresData.rankPosition  || reviewData?.rankPosition  || null,
+        rankLabel:     scoresData.rankLabel      || reviewData?.rankLabel     || null,
+        rankSegment:   (scoresData as any).rankSegment || null,
+
+        // ── Badge ───────────────────────────────────────────────────
+        labelType:     (scoresData as any).labelType  || null,
+        labelYear:     (scoresData as any).labelYear  || null,
+
+        // ── Verdict (summary page) ──────────────────────────────────
+        strengths:     scoresData.strengths,
+        weaknesses:    scoresData.weaknesses,
+
+        // ── Full review pros/cons ────────────────────────────────────
+        pros:          reviewData?.pros  || [],
+        cons:          reviewData?.cons  || [],
+
+        // ── Camera specs ─────────────────────────────────────────────
+        cameraSpecs:   reviewData?.cameraSpecs || [],
+
+        // ── Sample photos ────────────────────────────────────────────
+        sampleCount:   reviewData?.sampleCount  || 0,
+        sampleCategories: categories,
+        sampleImages:  reviewData?.sampleImages || [],
+
+        scrapedAt: new Date().toISOString(),
+      },
     };
   } catch (err: any) {
     return reply.status(500).send({ status: false, error: err?.message || String(err) });
@@ -1471,6 +1555,7 @@ app.get('/dxomark/review', async (request, reply) => {
  * GET /dxomark/review/url?url=https://www.dxomark.com/samsung-galaxy-s25-ultra-camera-test/
  *
  * Scrape a specific DXOMark camera review URL directly.
+ * Now also returns sampleImages[] and sampleCount.
  */
 app.get('/dxomark/review/url', async (request, reply) => {
   const url = (request.query as any).url;
@@ -1482,6 +1567,72 @@ app.get('/dxomark/review/url', async (request, reply) => {
     const data = await scrapeDxoReview(url, nocache);
     if (!data) return reply.status(500).send({ status: false, error: 'Failed to scrape review page.' });
     return { status: true, data };
+  } catch (err: any) {
+    return reply.status(500).send({ status: false, error: err?.message || String(err) });
+  }
+});
+
+/**
+ * GET /dxomark/review/samples?name=samsung galaxy s25 ultra
+ *
+ * Returns ONLY the sampleImages array from the camera review — fastest way
+ * to get all camera test photos grouped by category (Main, Ultra-Wide, Tele, etc.)
+ * Add &nocache=1 to bypass cache.
+ *
+ * Response shape:
+ * {
+ *   "device": "Samsung Galaxy S25 Ultra",
+ *   "reviewUrl": "https://www.dxomark.com/...",
+ *   "sampleCount": 42,
+ *   "categories": ["Main Camera", "Ultra-Wide", "Telephoto / Zoom", "Selfie"],
+ *   "sampleImages": [
+ *     { "category": "Main Camera", "url": "https://...", "caption": "...", "thumbnail": null },
+ *     ...
+ *   ]
+ * }
+ */
+app.get('/dxomark/review/samples', async (request, reply) => {
+  const name = (request.query as any).name;
+  const url  = (request.query as any).url;   // optional: use review URL directly
+  const nocache = (request.query as any).nocache === '1';
+
+  if (!name && !url) {
+    return reply.status(400).send({
+      status: false,
+      error: 'Provide ?name=device name  OR  ?url=https://www.dxomark.com/device-camera-test/',
+    });
+  }
+
+  try {
+    let data: import('../src/parser/parser.dxomark').IDxoReview | null = null;
+
+    if (url && url.includes('dxomark.com')) {
+      data = await scrapeDxoReview(url, nocache);
+    } else {
+      data = await getDxoReview(name, nocache);
+    }
+
+    if (!data) {
+      return reply.status(404).send({
+        status: false,
+        error: `No camera review found${name ? ` for "${name}"` : ''} on DXOMark.`,
+      });
+    }
+
+    // Derive unique category list in order of appearance
+    const categories = [...new Set(data.sampleImages.map(s => s.category))];
+
+    return {
+      status: true,
+      _cache: nocache ? 'bypassed' : 'hit',
+      data: {
+        device: data.device,
+        reviewUrl: data.reviewUrl,
+        sampleCount: data.sampleCount,
+        categories,
+        sampleImages: data.sampleImages,
+      },
+    };
   } catch (err: any) {
     return reply.status(500).send({ status: false, error: err?.message || String(err) });
   }

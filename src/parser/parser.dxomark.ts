@@ -667,6 +667,17 @@ function parseHtmlFallback(html: string, pageUrl: string, brand: string, model: 
 // Much richer than the /smartphones/ summary page.
 // ─────────────────────────────────────────────────────────────────────────────
 
+export interface IDxoSampleImage {
+  /** Category heading — e.g. "Main Camera", "Ultra-Wide", "Zoom", "Selfie", "Video" */
+  category: string;
+  /** Full image URL (CDN or wp-content) */
+  url: string;
+  /** Alt text or caption if present */
+  caption: string | null;
+  /** Thumbnail URL if a separate src exists, otherwise same as url */
+  thumbnail: string | null;
+}
+
 export interface IDxoReview {
   device: string;
   reviewUrl: string;
@@ -698,6 +709,10 @@ export interface IDxoReview {
   };
   pros: string[];
   cons: string[];
+  /** Camera sample photos grouped by category */
+  sampleImages: IDxoSampleImage[];
+  /** Total number of sample photos scraped */
+  sampleCount: number;
   scrapedAt: string;
 }
 
@@ -730,9 +745,9 @@ export async function getCameraReviewUrl(devicePageUrl: string): Promise<string 
   return null;
 }
 
-/** Scrape the full camera review page */
+/** Scrape the full camera review page — scores, best-in-class, pros/cons, AND sample photos */
 export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promise<IDxoReview | null> {
-  const ck = `dxo:review:v1:${reviewUrl}`;
+  const ck = `dxo:review:v2:${reviewUrl}`;
   if (!nocache) {
     const cached = await cacheGet<IDxoReview>(ck);
     if (cached) return cached;
@@ -745,11 +760,12 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
 
   const $ = cheerio.load(html);
 
-  // Device name from title
-  const device = $('h1').first().text().replace(/camera test.*/i, '').trim() ||
+  // ── Device name ─────────────────────────────────────────────────────────────
+  const device =
+    $('h1').first().text().replace(/\s*camera test.*/i, '').trim() ||
     $('title').first().text().replace(/camera test.*dxomark/i, '').replace(/[-–|]/g, '').trim();
 
-  // Overall score — appears as standalone number before "camera" label
+  // ── Overall score ────────────────────────────────────────────────────────────
   let overallScore: number | null = null;
   $('*').each((_: any, el: any) => {
     if (overallScore) return false;
@@ -759,17 +775,20 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
     if (!isNaN(n) && n >= 50 && n <= 200 && txt === String(n)) overallScore = n;
   });
 
-  // Ranking — "16th\nRanking Position\nin Global Ranking"
+  // ── Ranking ──────────────────────────────────────────────────────────────────
   let rankPosition: number | null = null;
   let rankLabel: string | null = null;
   const bodyText = $('body').text();
-  const rankMatch = bodyText.match(/(\d+)(st|nd|rd|th)\s*\n?\s*Ranking Position/i);
+  const rankMatch =
+    bodyText.match(/(\d+)(st|nd|rd|th)\s*\n?\s*Ranking Position/i) ||
+    bodyText.match(/#(\d+)\s+in\s+Global Ranking/i) ||
+    bodyText.match(/(\d+)(st|nd|rd|th)\s+in\s+Global Ranking/i);
   if (rankMatch) {
     rankPosition = parseInt(rankMatch[1], 10);
     rankLabel = `#${rankPosition} in Global Ranking`;
   }
 
-  // Camera specs — bullet list under "Key camera specifications"
+  // ── Camera specs ─────────────────────────────────────────────────────────────
   const cameraSpecs: string[] = [];
   let inSpecs = false;
   $('h6, h5, h4, h3, li, p').each((_: any, el: any) => {
@@ -779,8 +798,7 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
     if (inSpecs && /^(scoring|overview|test summary|pros|cons)/i.test(txt)) inSpecs = false;
   });
 
-  // Scores — build flat text list and parse with context
-  // Structure: "152\n[Photo](#photo)\n[Main](#photo-main)\n155\n184\nBest:..."
+  // ── Scores ────────────────────────────────────────────────────────────────────
   const allText: string[] = [];
   $('*').each((_: any, el: any) => {
     if ($(el).children().length > 0) return;
@@ -797,79 +815,194 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
   };
   const bestScores = { ...scores };
 
-  // Walk text finding label → score → best pairs
-  // Labels are anchor texts like "Photo", "Main", "Bokeh", "Ultra-Wide", "Tele", "Video"
-  let ctx = ''; // 'photo' or 'video'
+  let ctx = '';
+  const getScorePair = (
+    i: number,
+    field: keyof typeof scores,
+    bestField: keyof typeof bestScores,
+  ) => {
+    let scoreFound = false;
+    for (let j = i + 1; j < Math.min(i + 10, allText.length); j++) {
+      const raw = allText[j];
+      if (/^(photo|video|bokeh|main|ultra.?wide|tele|use cases|scoring|overview)$/i.test(raw.replace(/\s*i\s*$/, '').trim())) break;
+      if (/best:/i.test(raw)) {
+        const m = raw.match(/\((\d{2,3})\)/);
+        if (m && bestScores[bestField] === null) bestScores[bestField] = parseInt(m[1], 10);
+        break;
+      }
+      const v = parseInt(raw.replace(/\D/g, ''), 10);
+      if (!isNaN(v) && v >= 50 && v <= 200 && /^\d+$/.test(raw.trim())) {
+        if (!scoreFound && scores[field] === null) { scores[field] = v; scoreFound = true; }
+        else if (scoreFound && bestScores[bestField] === null) { bestScores[bestField] = v; break; }
+      }
+    }
+  };
+
   for (let i = 0; i < allText.length; i++) {
     const t = allText[i].replace(/\s*i\s*$/, '').trim();
-
-    // Context anchors
     if (/^photo$/i.test(t)) ctx = 'photo';
     if (/^video$/i.test(t)) ctx = 'video';
-
-    // Score + best extraction: label, then next number = score, then skip device name, then Best: device (score)
-    const getScorePair = (field: keyof typeof scores, bestField: keyof typeof bestScores) => {
-      // Look ahead up to 8 positions for score
-      let scoreFound = false;
-      for (let j = i + 1; j < Math.min(i + 8, allText.length); j++) {
-        const v = parseInt(allText[j].replace(/\D/g, ''), 10);
-        if (!isNaN(v) && v >= 50 && v <= 200) {
-          if (!scoreFound && scores[field] === null) {
-            scores[field] = v;
-            scoreFound = true;
-          } else if (scoreFound && bestScores[bestField] === null) {
-            bestScores[bestField] = v;
-            break;
-          }
-        }
-        // "Best:" marker — next number is the best
-        if (/^best:/i.test(allText[j])) {
-          const bestMatch = allText[j].match(/\((\d+)\)/);
-          if (bestMatch && bestScores[bestField] === null) {
-            bestScores[bestField] = parseInt(bestMatch[1], 10);
-          }
-          break;
-        }
-      }
-    };
-
-    if (/^photo$/i.test(t) && scores.photo === null) getScorePair('photo', 'photo');
-    else if (/^video$/i.test(t) && scores.video === null) getScorePair('video', 'video');
+    if (/^photo$/i.test(t) && scores.photo === null) getScorePair(i, 'photo', 'photo');
+    else if (/^video$/i.test(t) && scores.video === null) getScorePair(i, 'video', 'video');
     else if (/^main$/i.test(t)) {
-      if (ctx === 'photo' && scores.photoMain === null) getScorePair('photoMain', 'photoMain');
-      else if (ctx === 'video' && scores.videoMain === null) getScorePair('videoMain', 'videoMain');
-    } else if (/^bokeh$/i.test(t) && scores.photoBokeh === null) getScorePair('photoBokeh', 'photoBokeh');
+      if (ctx === 'photo' && scores.photoMain === null) getScorePair(i, 'photoMain', 'photoMain');
+      else if (ctx === 'video' && scores.videoMain === null) getScorePair(i, 'videoMain', 'videoMain');
+    } else if (/^bokeh$/i.test(t) && scores.photoBokeh === null) getScorePair(i, 'photoBokeh', 'photoBokeh');
     else if (/^ultra.?wide$/i.test(t)) {
-      if (ctx === 'photo' && scores.photoUltraWide === null) getScorePair('photoUltraWide', 'photoUltraWide');
-      else if (ctx === 'video' && scores.videoUltraWide === null) getScorePair('videoUltraWide', 'videoUltraWide');
+      if (ctx === 'photo' && scores.photoUltraWide === null) getScorePair(i, 'photoUltraWide', 'photoUltraWide');
+      else if (ctx === 'video' && scores.videoUltraWide === null) getScorePair(i, 'videoUltraWide', 'videoUltraWide');
     } else if (/^tele$/i.test(t)) {
-      if (ctx === 'photo' && scores.photoTele === null) getScorePair('photoTele', 'photoTele');
-      else if (ctx === 'video' && scores.videoTele === null) getScorePair('videoTele', 'videoTele');
+      if (ctx === 'photo' && scores.photoTele === null) getScorePair(i, 'photoTele', 'photoTele');
+      else if (ctx === 'video' && scores.videoTele === null) getScorePair(i, 'videoTele', 'videoTele');
     }
   }
 
-  // Pros and Cons — h6 "#### Pros" / "#### Cons"
+  // ── Pros and Cons ─────────────────────────────────────────────────────────────
   const pros: string[] = [];
   const cons: string[] = [];
   let prosCons = '';
-  $('h6, h5, h4, li').each((_: any, el: any) => {
+  $('h6, h5, h4, h3, li').each((_: any, el: any) => {
     const tag = el.name;
     const txt = $(el).text().trim();
     if (/^pros$/i.test(txt)) { prosCons = 'pros'; return; }
     if (/^cons$/i.test(txt)) { prosCons = 'cons'; return; }
-    if (/^(overview|test summary|use cases|scoring)/i.test(txt)) { prosCons = ''; return; }
+    if (/^(overview|test summary|use cases|scoring|conclusion)/i.test(txt)) { prosCons = ''; return; }
     if (tag === 'li' && txt.length > 5) {
       if (prosCons === 'pros') pros.push(txt);
       else if (prosCons === 'cons') cons.push(txt);
     }
   });
 
+  // ── Camera sample image scraping ──────────────────────────────────────────────
+  //
+  // DXOMark review pages have static HTML sample images in wp-content or CDN.
+  // Structure:
+  //   • Headings (h2/h3/h4) name the category  — "Main Camera samples", "Ultra-Wide"
+  //   • Images appear in <figure> / <img> after those headings
+  //   • Some use data-src or srcset for lazy-load
+  //   • Filter: skip SVG icons, logos, score widgets (<80px or icon/logo/badge in URL)
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const CATEGORY_PATTERNS: Array<[RegExp, string]> = [
+    [/\bselfie\b|front.?cam|facing/i,          'Selfie'],
+    [/main\s*camera|primary|rear\s*cam/i,      'Main Camera'],
+    [/ultra.?wide|wide.?angle/i,               'Ultra-Wide'],
+    [/tele(photo)?|zoom|periscope/i,           'Telephoto / Zoom'],
+    [/bokeh|portrait|depth/i,                  'Bokeh / Portrait'],
+    [/low.?light|night\s*(mode)?/i,            'Low Light / Night'],
+    [/video/i,                                  'Video'],
+    [/sample|test\s*shot|example|camera/i,     'Sample Shots'],
+  ];
+
+  function detectCategory(text: string): string | null {
+    for (const [re, label] of CATEGORY_PATTERNS) {
+      if (re.test(text)) return label;
+    }
+    return null;
+  }
+
+  function resolveRelative(url: string): string {
+    if (url.startsWith('//')) return 'https:' + url;
+    if (url.startsWith('/')) return 'https://www.dxomark.com' + url;
+    return url;
+  }
+
+  function isValidDxoImage(url: string): boolean {
+    if (!url || url.startsWith('data:')) return false;
+    const lower = url.toLowerCase();
+    if (lower.includes('.svg')) return false;
+    if (/\b(icon|logo|badge|sprite|pixel\.gif|blank|thumbnail-placeholder)\b/.test(lower)) return false;
+    if (lower.includes('score') && !lower.includes('upload')) return false;
+    if (url.startsWith('http') || url.startsWith('//')) {
+      return lower.includes('dxomark.com') || lower.includes('imgix') || lower.includes('imgproxy');
+    }
+    return /\.(jpe?g|png|webp)($|\?)/i.test(lower);
+  }
+
+  function resolveImgUrl(el: any): string | null {
+    const candidates = [
+      $(el).attr('data-src'),
+      $(el).attr('data-lazy-src'),
+      $(el).attr('data-original'),
+      $(el).attr('src'),
+    ].filter(Boolean) as string[];
+
+    for (const c of candidates) {
+      if (isValidDxoImage(c)) return resolveRelative(c);
+    }
+
+    // srcset — pick highest resolution (last item)
+    const srcset = $(el).attr('srcset') || $(el).attr('data-srcset') || '';
+    if (srcset) {
+      const parts = srcset.split(',')
+        .map((s: string) => s.trim().split(/\s+/)[0])
+        .filter(Boolean);
+      const best = parts[parts.length - 1];
+      if (best && isValidDxoImage(best)) return resolveRelative(best);
+    }
+    return null;
+  }
+
+  const sampleImages: IDxoSampleImage[] = [];
+  let currentCategory = 'Sample Shots';
+
+  $('h1,h2,h3,h4,h5,h6,figure,img').each((_: any, el: any) => {
+    const tag = (el as any).name as string;
+
+    // Update category context on headings
+    if (/^h[1-6]$/.test(tag)) {
+      const headText = $(el).text().trim();
+      const detected = detectCategory(headText);
+      if (detected) currentCategory = detected;
+      return;
+    }
+
+    if (tag === 'figure') {
+      const imgEl = $(el).find('img').first();
+      if (!imgEl.length) return;
+      const url = resolveImgUrl(imgEl.get(0));
+      if (!url) return;
+      const caption = $(el).find('figcaption').text().trim() || imgEl.attr('alt') || null;
+      const thumbSrc = $(el).find('[class*="thumb"],[class*="preview"]').first().attr('src') || null;
+      sampleImages.push({
+        category: currentCategory,
+        url,
+        caption: caption || null,
+        thumbnail: thumbSrc ? resolveRelative(thumbSrc) : null,
+      });
+      return;
+    }
+
+    if (tag === 'img') {
+      // Skip tiny UI elements
+      const w = parseInt($(el).attr('width') || '0', 10);
+      const h = parseInt($(el).attr('height') || '0', 10);
+      if ((w > 0 && w < 80) || (h > 0 && h < 80)) return;
+      const url = resolveImgUrl(el);
+      if (!url) return;
+      const alt = $(el).attr('alt') || null;
+      if (alt && /\b(logo|icon|badge|score|widget|rank|star|checkmark)\b/i.test(alt)) return;
+      sampleImages.push({ category: currentCategory, url, caption: alt, thumbnail: null });
+    }
+  });
+
+  // Deduplicate by URL
+  const seen = new Set<string>();
+  const dedupedImages = sampleImages.filter(img => {
+    if (seen.has(img.url)) return false;
+    seen.add(img.url);
+    return true;
+  });
+
   const result: IDxoReview = {
     device, reviewUrl, overallScore, rankPosition, rankLabel,
-    cameraSpecs: [...new Set(cameraSpecs)].slice(0, 10),
-    scores, bestScores,
-    pros: [...new Set(pros)].slice(0, 15),
-    cons: [...new Set(cons)].slice(0, 15),
+    cameraSpecs: [...new Set(cameraSpecs)].slice(0, 12),
+    scores,
+    bestScores,
+    pros:  [...new Set(pros)].slice(0, 15),
+    cons:  [...new Set(cons)].slice(0, 15),
+    sampleImages: dedupedImages,
+    sampleCount:  dedupedImages.length,
     scrapedAt: new Date().toISOString(),
   };
 
