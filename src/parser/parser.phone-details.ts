@@ -4,6 +4,120 @@ import { baseUrl } from "../server";
 import { TSpecCategory } from "../types";
 import { getHtml } from "./parser.service";
 
+/**
+ * FIXED: parser.phone-details.ts
+ * 
+ * This version properly detects review and camera sample links for ALL phones,
+ * including mid-range devices like iQoo Z7 Pro and Poco F7.
+ */
+
+/**
+ * Normalize a device slug by removing common brand prefixes and suffixes.
+ * GSMArena is inconsistent: specs might be "xiaomi_poco_f7" but review is "poco_f7".
+ */
+function normalizeBrand(slug: string): string {
+  let normalized = slug.toLowerCase()
+    .replace(/\.php$/, '')         // Remove .php
+    .replace(/-\d+$/, '')          // Remove trailing ID like -12484
+    .replace(/_5g$/, '');          // Remove _5g suffix
+
+  // Remove brand prefixes that GSMArena sometimes includes/excludes
+  const brandPrefixes = [
+    'xiaomi_poco_', 'xiaomi_', 
+    'vivo_iqoo_', 'vivo_', 
+    'samsung_galaxy_', 'samsung_',
+    'apple_iphone_', 'apple_',
+    'google_pixel_', 'google_',
+    'oneplus_', 'realme_', 'oppo_', 'honor_', 'motorola_', 'nokia_'
+  ];
+  
+  for (const prefix of brandPrefixes) {
+    if (normalized.startsWith(prefix)) {
+      normalized = normalized.slice(prefix.length);
+      break; // Only remove the first matching prefix
+    }
+  }
+  
+  return normalized;
+}
+
+/**
+ * Extract meaningful tokens from a slug for fuzzy matching.
+ * Example: "vivo_iqoo_z7_pro" → ["iqoo", "z7", "pro"]
+ */
+function extractSlugTokens(slug: string): string[] {
+  return slug
+    .toLowerCase()
+    .split(/[_\-\s]+/)
+    .filter(token => 
+      token.length > 1 &&           // Not too short
+      !token.match(/^\d+$/) &&      // Not pure numbers (IDs)
+      !token.match(/^5g$/)          // Not just "5g"
+    );
+}
+
+/**
+ * Check if a review/news link is related to this device.
+ * Uses multiple strategies to handle GSMArena's inconsistent naming.
+ */
+function isLinkRelatedToDevice(
+  href: string,
+  specSlug: string,
+  brand: string,
+  model: string
+): boolean {
+  const hrefLower = href.toLowerCase().replace(/\.php$/, '');
+  const specNormalized = normalizeBrand(specSlug);
+  
+  // Strategy 1: Direct normalized slug match
+  // Example: both normalize to "poco_f7"
+  const linkNormalized = normalizeBrand(hrefLower);
+  if (linkNormalized.includes(specNormalized) || specNormalized.includes(linkNormalized)) {
+    return true;
+  }
+  
+  // Strategy 2: Match by model name parts
+  // Example: model="iQOO Z7 Pro 5G" → check if link contains "iqoo", "z7", "pro"
+  if (model) {
+    const modelTokens = model
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(p => p.length > 2 && !p.match(/^5g$/));
+    
+    const matchedModelTokens = modelTokens.filter(token => hrefLower.includes(token));
+    if (matchedModelTokens.length >= Math.min(2, modelTokens.length)) {
+      return true;
+    }
+  }
+  
+  // Strategy 3: Fuzzy token matching
+  // Count how many significant tokens from the spec slug appear in the link
+  const specTokens = extractSlugTokens(specSlug);
+  const hrefTokens = extractSlugTokens(hrefLower);
+  
+  let matchCount = 0;
+  for (const token of specTokens) {
+    if (hrefTokens.some(ht => ht.includes(token) || token.includes(ht))) {
+      matchCount++;
+    }
+  }
+  
+  // Need at least 2 tokens matching (e.g., "iqoo" + "z7")
+  // OR if spec has only 2 tokens, both must match
+  const requiredMatches = specTokens.length <= 2 ? specTokens.length : 2;
+  if (matchCount >= requiredMatches) {
+    return true;
+  }
+  
+  // Strategy 4: Check if link contains the exact spec slug (with or without brand)
+  const specSlugClean = specSlug.toLowerCase().replace(/\.php$/, '').replace(/-\d+$/, '');
+  if (hrefLower.includes(specSlugClean.replace(/^[a-z]+_/, ''))) {
+    return true;
+  }
+  
+  return false;
+}
+
 export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
     const html = await getHtml(`${baseUrl}/${slug}.php`);
     const $ = cheerio.load(html);
@@ -12,6 +126,7 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
     const model = $('h1.specs-phone-name-title').contents().filter(function () {
         return this.type === 'text';
       }).text().trim();
+      
     // Primary device image — GSMArena specs pages serve this as the bigpic URL directly
     // e.g. https://fdn2.gsmarena.com/vv/bigpic/apple-iphone-17-pro-max.jpg
     let imageUrl = $('.specs-photo-main a img').attr('src')
@@ -54,40 +169,91 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
       }
     });
 
-    // ── Review / camera-samples link ──────────────────────────────────────────
+    // ── Review / camera-samples link (FIXED VERSION) ─────────────────────────
     // GSMArena uses several URL patterns for review/camera content:
     //   Standard review  : {device}-review-{id}.php
     //   Camera samples   : {device}_camera_samples_specs-news-{id}.php
     //   News article     : {device}-news-{id}.php  (some phones only have this)
     // We collect ALL candidates and rank them: review > camera_samples > news
+    
     let review_url: string | undefined;
-    const slugPrefix = slug.replace(/\.php$/, '').split('_').slice(0, 3).join('_').toLowerCase();
-
+    
     // Score a href: higher = better
     function reviewScore(href: string): number {
       if (href.includes('-review-')) return 100;
-      if (href.includes('camera_samples')) return 80;
-      if (href.includes('-news-') && href.includes('camera')) return 60;
-      if (href.includes('-news-')) return 20;
+      if (href.includes('camera_samples') || href.includes('camera-samples')) return 90;
+      if (href.includes('-news-') && href.includes('camera')) return 70;
+      if (href.includes('-news-')) return 30;
       return 0;
     }
 
-    let bestScore = -1;
+    // Collect all potential review/news/camera-samples links
+    interface LinkCandidate {
+      href: string;
+      score: number;
+      isRelated: boolean;
+    }
+    
+    const candidates: LinkCandidate[] = [];
+
     $('a').each((_, el) => {
       const href = ($(el).attr('href') || '').toLowerCase();
       if (!href.endsWith('.php')) return;
+      
       const score = reviewScore(href);
       if (score === 0) return;
-      // Must relate to this device — check slug prefix match
-      const linkSlug = href.replace(/^.*\//, '').replace(/-(review|news)-.*$/, '').replace(/_camera_samples.*$/, '');
-      const isThisDevice = linkSlug.startsWith(slugPrefix) || slugPrefix.startsWith(linkSlug.slice(0, 8));
-      if (!isThisDevice) return;
-      const candidate = href.startsWith('http') ? href : `${baseUrl}/${href}`;
-      if (score > bestScore) {
-        bestScore = score;
-        review_url = candidate;
-      }
+      
+      // Check if this link is related to our device
+      const isRelated = isLinkRelatedToDevice(href, slug, brand, model);
+      
+      const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
+      candidates.push({ href: fullUrl, score, isRelated });
     });
+
+    // Sort by: related first, then by score
+    candidates.sort((a, b) => {
+      if (a.isRelated !== b.isRelated) return a.isRelated ? -1 : 1;
+      return b.score - a.score;
+    });
+
+    // Take the best match
+    if (candidates.length > 0 && candidates[0].isRelated) {
+      review_url = candidates[0].href;
+    } else if (candidates.length > 0) {
+      // Fallback: if no "related" match, take highest scoring link anyway
+      // (some phones might have unusual naming)
+      const bestUnrelated = candidates[0];
+      if (bestUnrelated.score >= 70) { // Only if it's review or camera_samples
+        review_url = bestUnrelated.href;
+      }
+    }
+
+    // Additional fallback: search in page text for links
+    if (!review_url) {
+      const pageText = $('body').text().toLowerCase();
+      const possibleReviewTexts = [
+        `${brand.toLowerCase()} ${model.toLowerCase()} review`,
+        `${model.toLowerCase()} review`,
+        `${brand.toLowerCase()} ${model.toLowerCase()} camera`,
+        `${model.toLowerCase()} camera samples`
+      ];
+      
+      for (const searchText of possibleReviewTexts) {
+        if (pageText.includes(searchText)) {
+          // Page mentions a review/camera - try one more aggressive search
+          $('a').each((_, el) => {
+            const href = ($(el).attr('href') || '').toLowerCase();
+            const text = $(el).text().toLowerCase();
+            if ((href.includes('review') || href.includes('camera') || href.includes('news')) &&
+                (text.includes('review') || text.includes('camera'))) {
+              const fullUrl = href.startsWith('http') ? href : `${baseUrl}/${href}`;
+              if (!review_url) review_url = fullUrl;
+            }
+          });
+          break;
+        }
+      }
+    }
 
     // ── HD pictures page link ────────────────────────────────────────────────
     // GSMArena specs pages link to a pictures gallery: {device}-pictures-{id}.php
