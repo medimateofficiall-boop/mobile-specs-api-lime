@@ -1015,11 +1015,64 @@ export async function scrapeDxoReview(reviewUrl: string, nocache = false): Promi
 }
 
 /** One-shot: get review data by device name */
+/**
+ * Build the DXOMark camera review URL directly from a device name.
+ * Pattern: https://www.dxomark.com/{brand}-{model-slug}-camera-test[-retested]/
+ * e.g. "Samsung Galaxy S25 Ultra" → "samsung-galaxy-s25-ultra-camera-test-retested/"
+ * Tries retested first, then plain, then falls back to scraping device page.
+ */
+async function buildReviewUrl(brand: string, model: string): Promise<string | null> {
+  // Build slug: "Samsung" + "Galaxy S25 Ultra" → "samsung-galaxy-s25-ultra"
+  const slug = `${brand} ${model}`.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+  const candidates = [
+    `${DXO_BASE}/${slug}-camera-test-retested/`,
+    `${DXO_BASE}/${slug}-camera-test/`,
+  ];
+
+  for (const url of candidates) {
+    try {
+      const resp = await axios.head(url, {
+        headers: HEADERS,
+        timeout: 8000,
+        maxRedirects: 3,
+        validateStatus: (s) => s < 400,
+      });
+      if (resp.status < 400) return url;
+    } catch { /* try next */ }
+  }
+
+  // Fallback: fetch device page and scrape the link
+  try {
+    const devicePageUrl = buildDxoUrl(brand, model);
+    const html = await getDxoHtml(devicePageUrl);
+    const $ = cheerio.load(html);
+    let found: string | null = null;
+    $('a[href*="camera-test"]').each((_: any, el: any) => {
+      if (found) return false;
+      const href = $(el).attr('href') || '';
+      if (href.includes('camera-test')) {
+        found = href.startsWith('http') ? href : `${DXO_BASE}${href}`;
+      }
+    });
+    return found;
+  } catch { return null; }
+}
+
+/** One-shot: get review data by device name — builds review URL directly, no extra device-page fetch */
 export async function getDxoReview(deviceName: string, nocache = false): Promise<IDxoReview | null> {
   const { brand, model } = splitBrandModel(deviceName);
   if (!model) return null;
-  const devicePageUrl = buildDxoUrl(brand, model);
-  const reviewUrl = await getCameraReviewUrl(devicePageUrl);
+
+  // Cache the resolved review URL so repeated calls don't HEAD-check twice
+  const urlCk = `dxo:reviewurl:v2:${brand}:${model}`.toLowerCase();
+  let reviewUrl: string | null = nocache ? null : (await cacheGet<string>(urlCk));
+
+  if (!reviewUrl) {
+    reviewUrl = await buildReviewUrl(brand, model);
+    if (reviewUrl) cacheSet(urlCk, reviewUrl);
+  }
+
   if (!reviewUrl) return null;
   return scrapeDxoReview(reviewUrl, nocache);
 }

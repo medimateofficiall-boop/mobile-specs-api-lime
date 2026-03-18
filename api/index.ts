@@ -1410,14 +1410,12 @@ app.get('/dxomark', async (request, reply) => {
   }
 
   try {
-    // Run both scrapers in parallel — scores page + full review page
-    const [scores, review] = await Promise.allSettled([
-      getDxoScores(name, nocache),
-      getDxoReview(name, nocache),
-    ]);
-
-    const scoresData = scores.status === 'fulfilled' ? scores.value : null;
-    const reviewData = review.status === 'fulfilled' ? review.value : null;
+    // Sequential — not parallel — to avoid hitting DXOMark with concurrent requests
+    // which triggers Cloudflare rate limiting and causes the review fetch to return null.
+    // getDxoScores fetches the /smartphones/ summary page.
+    // getDxoReview now builds the review URL directly (HEAD check) — no overlap.
+    const scoresData = await getDxoScores(name, nocache);
+    const reviewData = await getDxoReview(name, nocache);
 
     if (!scoresData) {
       return reply.status(400).send({
