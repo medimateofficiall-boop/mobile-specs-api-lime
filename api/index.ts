@@ -708,7 +708,7 @@ app.get('/debug/flush-html', async (_request, reply) => {
 app.get('/debug/cache-test', async (request, reply) => {
   const name = (request.query as any).name || 'samsung galaxy s25 ultra';
   const normName = name.toLowerCase().trim().replace(/\s+/g, ' ');
-  const fullCk = `gsm:phone-full:v1:${normName}`;
+  const fullCk = `gsm:phone-full:v2:${normName}`;
 
   const url   = process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -998,7 +998,7 @@ app.get('/phone', async (request, reply) => {
 
   // Normalise name: lowercase + collapse whitespace (handles URL encoding quirks)
   const normName = name.toLowerCase().trim().replace(/\s+/g, ' ');
-  const fullCk = `gsm:phone-full:v1:${normName}`;
+  const fullCk = `gsm:phone-full:v2:${normName}`;
   
   // Skip cache if nocache param is present
   const fullCached = nocache ? { data: null, source: 'miss' as const } : await cacheGetWithSource<any>(fullCk);
@@ -1273,18 +1273,27 @@ app.get('/phone', async (request, reply) => {
     status: true,
     matched: bestMatch.name,
     _cache: 'miss' as const,
+    _cameraFound: cameraSamples.length > 0,
     data: {
       ...specs,
       hdImageUrl,
       cameraSamples,
       lensDetails,
     },
-    debug, // Include debug info
+    debug,
   };
 
-  // Cache under the normalised key — next request returns instantly
-  cacheSet(fullCk, { status: result.status, matched: result.matched, data: result.data });
-  console.log(`[/phone] cached "${normName}" → ${fullCk}`);
+  // Only persist to Redis when the result is complete.
+  // If we have a review_url but zero cameraSamples, it was a transient scrape failure.
+  // Caching an empty result would lock it out for 7 days — the exact bug we fixed.
+  // Skip Redis so the next request re-scrapes and gets the real data.
+  const shouldPersist = cameraSamples.length > 0 || !specs.review_url;
+  if (shouldPersist) {
+    cacheSet(fullCk, { status: result.status, matched: result.matched, data: result.data });
+    console.log(`[/phone] cached "${normName}" → ${fullCk} (cameraFound=${result._cameraFound})`);
+  } else {
+    console.log(`[/phone] SKIP Redis cache "${normName}" — review_url present but cameraSamples=[] (transient, will retry)`);
+  }
 
   return result;
 });

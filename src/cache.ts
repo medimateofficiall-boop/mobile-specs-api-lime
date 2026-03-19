@@ -58,9 +58,13 @@ async function _redisSet(k: string, d: unknown): Promise<void> {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) return;
   try {
+    // No EX — persist indefinitely.
+    // Invalidation is handled by bumping the cache key version in index.ts
+    // (gsm:phone-full:v1 → v2 → v3 …) whenever the scraper logic changes.
+    // Old versioned keys are simply never read again.
     await _redisAxios.post(
       `${url}/pipeline`,
-      [['SET', k, JSON.stringify(d)]],  // no EX — persist indefinitely
+      [['SET', k, JSON.stringify(d)]],
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 25000 },
     );
   } catch { /* non-fatal */ }
