@@ -1126,7 +1126,10 @@ app.get('/phone', async (request, reply) => {
           const lower = href.toLowerCase();
           if (!lower.endsWith('.php')) return;
           if (lower.includes('camera_samples') || lower.includes('camera-samples') ||
-              (lower.includes('-news-') && lower.includes('camera')) ||
+              lower.includes('camera_test') || lower.includes('camera-test') ||
+              lower.includes('photo_samples') || lower.includes('photo-samples') ||
+              lower.includes('camera_review') || lower.includes('camera-review') ||
+              (lower.includes('-news-') && (lower.includes('camera') || lower.includes('photo') || lower.includes('sample'))) ||
               lower.includes('-review-')) {
             const full = href.startsWith('http') ? href : ('https://www.gsmarena.com/' + href);
             if (!links.includes(full)) links.push(full);
@@ -1174,7 +1177,10 @@ app.get('/phone', async (request, reply) => {
               const lower = href.toLowerCase();
               if (!lower.endsWith('.php')) return;
               if (lower.includes('camera_samples') || lower.includes('camera-samples') ||
-                  (lower.includes('-news-') && lower.includes('camera')) ||
+                  lower.includes('camera_test') || lower.includes('camera-test') ||
+                  lower.includes('photo_samples') || lower.includes('photo-samples') ||
+                  lower.includes('camera_review') || lower.includes('camera-review') ||
+                  (lower.includes('-news-') && (lower.includes('camera') || lower.includes('photo') || lower.includes('sample'))) ||
                   lower.includes('-review-')) {
                 const full = href.startsWith('http') ? href : ('https://www.gsmarena.com/' + href);
                 if (!links.includes(full)) links.push(full);
@@ -1246,7 +1252,10 @@ app.get('/phone', async (request, reply) => {
               const lower = href.toLowerCase();
               if (!lower.endsWith('.php')) return;
               if (lower.includes('camera_samples') || lower.includes('camera-samples') ||
-                  (lower.includes('-news-') && lower.includes('camera')) ||
+                  lower.includes('camera_test') || lower.includes('camera-test') ||
+                  lower.includes('photo_samples') || lower.includes('photo-samples') ||
+                  lower.includes('camera_review') || lower.includes('camera-review') ||
+                  (lower.includes('-news-') && (lower.includes('camera') || lower.includes('photo') || lower.includes('sample'))) ||
                   lower.includes('-review-')) {
                 const full = href.startsWith('http') ? href : ('https://www.gsmarena.com/' + href);
                 if (!links5g.includes(full)) links5g.push(full);
@@ -1266,6 +1275,63 @@ app.get('/phone', async (request, reply) => {
       }
     } catch (e: any) {
       debug.steps.push({ action: '5g_autocomplete_error', error: e?.message });
+    }
+  }
+
+  // ── Final universal fallback: GSMArena news search ───────────────────────
+  // When all page-scraping strategies fail, query GSMArena's own search for
+  // news articles about this device's camera samples. This catches phones where
+  // the camera article is never linked from the specs/opinions page at all.
+  if (cameraSamples.length === 0) {
+    try {
+      const axios = (await import('axios')).default;
+      const { load } = await import('cheerio');
+      const { getHtml } = await import('../src/parser/parser.service');
+
+      // Build a human-readable model name from the slug for the search query
+      const slugBase = deviceSlug.replace(/-\d+$/, '');
+      const modelName = slugBase.replace(/_/g, ' ');
+      // Try two queries: specific "camera samples" first, then just "camera"
+      const queries = [
+        `${modelName} camera samples`,
+        `${modelName} camera`,
+      ];
+
+      for (const query of queries) {
+        if (cameraSamples.length > 0) break;
+        const searchUrl = `https://www.gsmarena.com/search.php3?sQuickSearch=${encodeURIComponent(query)}&mode=news`;
+        debug.steps.push({ action: 'news_search_attempt', query, url: searchUrl });
+        try {
+          const resp = await axios.get(searchUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+            timeout: 8000,
+          });
+          const $s = load(resp.data);
+          const newsLinks: string[] = [];
+          $s('a[href]').each((_: number, el: any) => {
+            const href: string = ($s(el).attr('href') || '');
+            const lower = href.toLowerCase();
+            if (!lower.endsWith('.php')) return;
+            if (!lower.includes('-news-') && !lower.includes('camera_samples') && !lower.includes('photo_samples')) return;
+            if (!lower.includes('camera') && !lower.includes('photo') && !lower.includes('sample')) return;
+            const full = href.startsWith('http') ? href : ('https://www.gsmarena.com/' + href);
+            if (!newsLinks.includes(full)) newsLinks.push(full);
+          });
+          debug.steps.push({ action: 'news_search_links', query, count: newsLinks.length, links: newsLinks.slice(0, 5) });
+          for (const link of newsLinks) {
+            if (await tryCameraUrl(link)) {
+              specs.review_url = link;
+              debug.review_url = link;
+              debug.steps.push({ action: 'news_search_found', url: link });
+              break;
+            }
+          }
+        } catch (e: any) {
+          debug.steps.push({ action: 'news_search_error', query, error: e?.message });
+        }
+      }
+    } catch (e: any) {
+      debug.steps.push({ action: 'news_search_outer_error', error: e?.message });
     }
   }
 
