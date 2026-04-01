@@ -338,6 +338,18 @@ This project scrapes publicly accessible pages for personal and educational use.
 
 ---
 
-## License
+## ⭐ Support
+
+If this project helped you, consider giving it a star — it helps others discover it!
+
+[![Star this repo](https://img.shields.io/github/stars/Sanjeevu-Tarun/mobile-specs-api?style=social)](https://github.com/Sanjeevu-Tarun/mobile-specs-api)
+
+- 🐛 [Report a bug](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues)
+- 💡 [Request a feature](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues)
+- 👤 [Follow me on GitHub](https://github.com/Sanjeevu-Tarun) for more projects like this
+
+---
+
+## 📄 License
 
 [MIT](./LICENSE) © 2026 — Made with ❤️ by [Sanjeevu-Tarun](https://github.com/Sanjeevu-Tarun)
