@@ -1,48 +1,63 @@
 <div align="center">
 
-# 📱 Mobile Specs API
+# 🚀 GSMArena + DXOMark API
+### Fastify · TypeScript · Vercel
 
-**A blazing-fast GSMArena + DXOMark scraper API — TypeScript, Fastify, Vercel**
+**⚡ The most complete open-source mobile specs API**
 
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178c6?logo=typescript&logoColor=white)
-![Fastify](https://img.shields.io/badge/Fastify-5.x-000000?logo=fastify)
-![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)
-![Last Commit](https://img.shields.io/github/last-commit/Sanjeevu-Tarun/mobile-specs-api)
+Scrapes GSMArena & DXOMark · Blazing-fast two-layer cache · No API key · No signup · Deploy in 2 minutes
 
-[Report Bug](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues) · [Request Feature](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Fastify](https://img.shields.io/badge/Fastify-5.x-000000?logo=fastify)](https://fastify.dev/)
+[![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)](https://vercel.com/)
+[![Last Commit](https://img.shields.io/github/last-commit/Sanjeevu-Tarun/mobile-specs-api)](https://github.com/Sanjeevu-Tarun/mobile-specs-api/commits)
+
+[🐛 Report Bug](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues) · [💡 Request Feature](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues) · [👤 Follow Me](https://github.com/Sanjeevu-Tarun)
 
 </div>
 
 ---
 
-## What is this?
+## Why This Exists
 
-A production-ready REST API that scrapes **GSMArena** and **DXOMark** and returns clean JSON — no API key, no signup, just hit the endpoint.
+Most GSMArena scrapers return half-baked JSON. None of them touch DXOMark. Developers building phone comparison tools, AI assistants, or tech blogs are left stitching together multiple sources manually.
 
-Built as a **Vercel serverless function** with a two-layer **Redis (Upstash) + in-memory LRU cache** so repeat requests are sub-millisecond.
+**This API solves that in a single endpoint:**
 
-### Why this over other GSMArena scrapers?
-
-| Feature | This API | Most others |
-|---------|----------|-------------|
-| DXOMark scores + sub-scores | ✅ | ❌ |
-| Camera samples by category | ✅ | ❌ |
-| Device images per colour | ✅ | ❌ |
-| Smart search (penalty scoring) | ✅ | ❌ |
-| Redis + mem cache | ✅ | ❌ |
-| Serverless (no server to maintain) | ✅ | ❌ |
-| Full review scraping | ✅ | ❌ |
+- ✅ Full GSMArena specs — structured, clean JSON, every field
+- ✅ DXOMark scores, sub-scores, pros/cons, and rankings — from a single API call
+- ✅ Camera samples organized by category (main, night, zoom, selfie, ultra-wide, video)
+- ✅ Device images per colour variant
+- ✅ Smart search with penalty scoring so `pixel 9` doesn't bleed into `pixel 9 pro`
+- ✅ Two-layer cache (in-memory LRU + Redis) for sub-millisecond repeat responses
+- ✅ Serverless on Vercel — zero infrastructure to maintain
 
 ---
 
-## Try it now
+## What Makes This Different
 
-Deploy your own instance first — it's free and takes 2 minutes:
+| Feature | This API | Most others |
+|---|---|---|
+| **DXOMark scores + sub-scores** | ✅ | ❌ |
+| **Camera samples by category** | ✅ | ❌ |
+| **Device images per colour** | ✅ | ❌ |
+| **Smart search (penalty scoring)** | ✅ | ❌ |
+| **Redis + in-memory LRU cache** | ✅ | ❌ |
+| **Full review scraping** | ✅ | ❌ |
+| **Serverless (no server to run)** | ✅ | ❌ |
+
+> 🏆 **First open-source API combining GSMArena specs and DXOMark camera scores in a single unified response.**
+
+---
+
+## Live Demo
+
+Deploy your own free instance — it takes about 2 minutes:
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Sanjeevu-Tarun/mobile-specs-api)
 
-Then hit your own deployment:
+Once deployed, try these right away:
 
 ```bash
 # All brands
@@ -54,23 +69,23 @@ curl "https://YOUR-DEPLOYMENT.vercel.app/search?query=samsung+s25+ultra"
 # Full specs
 curl https://YOUR-DEPLOYMENT.vercel.app/samsung_galaxy_s25_ultra-12552
 
-# DXOMark score
+# DXOMark camera score
 curl https://YOUR-DEPLOYMENT.vercel.app/dxomark/samsung-galaxy-s25-ultra
 ```
 
-> Each user runs on their own free Vercel account — no shared quota, no rate limit surprises.
+> Each deployment runs on its own Vercel account — no shared quota, no rate limit surprises.
 
 ---
 
 ## Quick Start
 
-**Prerequisites:** [Node.js 18+](https://nodejs.org) and pnpm
+**Prerequisites:** [Node.js 18+](https://nodejs.org) · pnpm
 
 ```bash
 # Install pnpm if you don't have it
 npm install -g pnpm
 
-# Clone and run
+# Clone and run locally
 git clone https://github.com/Sanjeevu-Tarun/mobile-specs-api
 cd mobile-specs-api
 pnpm install
@@ -78,7 +93,7 @@ pnpm dev
 # → http://localhost:4000
 ```
 
-> **How it works locally:** The project is a Vercel serverless function — `api/index.ts` only exports a handler. `pnpm dev` starts a local Fastify server on port 4000 purely for development. On Vercel, the handler is called directly.
+> **How it works locally:** `api/index.ts` exports a Vercel handler. `pnpm dev` spins up a local Fastify server on port 4000 purely for development. On Vercel, the handler is called directly — no extra configuration needed.
 
 ### Deploy to Vercel
 
@@ -87,7 +102,7 @@ npm install -g vercel
 vercel deploy
 ```
 
-`vercel.json` is already configured — no extra setup needed. Or use the one-click button at the top.
+`vercel.json` is pre-configured. No extra setup required. Or use the one-click button above.
 
 ---
 
@@ -96,11 +111,60 @@ vercel deploy
 Optional — the API works without Redis using in-memory cache only.
 
 | Variable | Description |
-|----------|-------------|
+|---|---|
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token |
 
-Get free Redis at [console.upstash.com](https://console.upstash.com) → create database → copy REST URL + token → add to Vercel project settings.
+Get free Redis at [console.upstash.com](https://console.upstash.com) → create a database → copy REST URL + token → add to Vercel project settings.
+
+---
+
+## Architecture
+
+```
+Client Request
+      │
+      ▼
+  Vercel Edge
+      │
+      ▼
+Fastify Router  ──→  Route Handler
+                           │
+                    ┌──────┴──────┐
+                    ▼             ▼
+              LRU Cache      Redis Cache
+              (in-memory)    (Upstash)
+                    │             │
+                    └──────┬──────┘
+                           │ cache miss
+                           ▼
+                     GSMArena / DXOMark
+                       (scrapers)
+                           │
+                           ▼
+                     Structured JSON
+                      → cached → returned
+```
+
+On a cache hit (layer 1), response time is effectively **zero latency**. On a cache miss, the scraper fetches, parses, stores in both layers, and responds — cold start included.
+
+---
+
+## Performance
+
+This API is built for speed at every layer:
+
+**Layer 1 — In-Memory LRU Cache**
+- Holds up to 300 entries
+- 30-day TTL
+- Zero network overhead — always checked first
+
+**Layer 2 — Redis via Upstash**
+- Checked on memory miss (e.g. cold Vercel start)
+- Persists indefinitely across deployments
+- Makes cold starts nearly indistinguishable from warm ones
+
+**Cache key versioning** (`gsm:phone-full:v3`) means bumping the version in code instantly invalidates stale data — no manual flush needed.
 
 ---
 
@@ -144,7 +208,7 @@ curl https://YOUR-DEPLOYMENT.vercel.app/brands/samsung-phones-9
 <summary><b>🔍 Discovery & Search</b></summary>
 
 | Endpoint | Description |
-|----------|-------------|
+|---|---|
 | `GET /latest` | Latest released phones |
 | `GET /top-by-interest` | Top phones by daily hits |
 | `GET /top-by-fans` | Top phones by total favorites |
@@ -209,7 +273,7 @@ curl https://YOUR-DEPLOYMENT.vercel.app/samsung_galaxy_s25_ultra-12552
 e.g. `gsmarena.com/samsung_galaxy_s25_ultra-review-2631.php` → `samsung_galaxy_s25_ultra-review-2631`
 
 | Endpoint | Description |
-|----------|-------------|
+|---|---|
 | `GET /review/:reviewSlug` | Full review — hero images, article images, camera samples |
 | `GET /review/:reviewSlug/camera-samples` | Camera samples only |
 | `GET /review/:reviewSlug/images` | Hero + article images only |
@@ -238,8 +302,8 @@ curl https://YOUR-DEPLOYMENT.vercel.app/review/samsung_galaxy_s25_ultra-review-2
 
 **Camera sample categories:**
 
-| Label | Matched by |
-|-------|-----------|
+| Label | Matched keywords |
+|---|---|
 | Main Camera | main, daylight, outdoor |
 | Night / Low Light | night, low light |
 | Zoom | zoom, tele |
@@ -253,10 +317,12 @@ curl https://YOUR-DEPLOYMENT.vercel.app/review/samsung_galaxy_s25_ultra-review-2
 </details>
 
 <details>
-<summary><b>🎯 DXOMark</b></summary>
+<summary><b>🎯 DXOMark — Unique Feature</b></summary>
+
+> **This is the only open-source API that combines GSMArena specs with live DXOMark camera scores.**
 
 | Endpoint | Description |
-|----------|-------------|
+|---|---|
 | `GET /dxomark/:slug` | Overall score, sub-scores, pros/cons, ranking |
 | `GET /dxomark/search?query=<q>` | Search DXOMark by device name |
 | `GET /dxomark/url?url=<dxomark-url>` | Scrape any DXOMark page by URL |
@@ -288,14 +354,16 @@ curl https://YOUR-DEPLOYMENT.vercel.app/dxomark/samsung-galaxy-s25-ultra
 
 ---
 
-## Caching
+## Use Cases
 
-| Layer | Storage | TTL | Behaviour |
-|-------|---------|-----|-----------|
-| 1st | In-memory LRU (300 entries) | 30 days | Always checked first, zero latency |
-| 2nd | Redis via Upstash | Indefinite | Checked on memory miss, persists across cold starts |
+This API is a good fit for:
 
-Cache keys are versioned (`gsm:phone-full:v3`) — bumping the version in code instantly invalidates stale data with no manual flush needed.
+- **Mobile comparison platforms** — pull full specs + DXOMark scores side by side
+- **Tech blogs & review sites** — embed live specs without maintaining a database
+- **AI assistants & chatbots** — give your LLM structured phone knowledge
+- **Mobile apps** — display device info, camera benchmarks, and colour variants
+- **Price trackers** — pair device specs with pricing APIs for richer context
+- **Research tools** — scrape and analyse smartphone trends at scale
 
 ---
 
@@ -320,14 +388,14 @@ Cache keys are versioned (`gsm:phone-full:v3`) — bumping the version in code i
 
 ## Contributing
 
-Issues and PRs are welcome! For major changes please open an issue first.
+Issues and PRs are welcome. For major changes, please open an issue first to discuss what you'd like to change.
 
 ```bash
 git checkout -b feature/your-feature
-# make changes
-git commit -m "feat: your feature"
+# make your changes
+git commit -m "feat: describe your change"
 git push origin feature/your-feature
-# open a PR
+# open a pull request
 ```
 
 ---
@@ -340,15 +408,13 @@ This project scrapes publicly accessible pages for personal and educational use.
 
 ## ⭐ Support
 
-If this project helped you, consider giving it a star — it helps others discover it!
+If this project saved you time, a star goes a long way — it helps other developers find it.
 
 [![Star this repo](https://img.shields.io/github/stars/Sanjeevu-Tarun/mobile-specs-api?style=social)](https://github.com/Sanjeevu-Tarun/mobile-specs-api)
 
-- 🐛 [Report a bug](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues)
-- 💡 [Request a feature](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues)
-- 👤 [Follow me on GitHub](https://github.com/Sanjeevu-Tarun) for more projects like this ❤️!!
-- ❤️ Thanks for your support 
 ---
+
+<!-- SEO: GSMArena API, DXOMark API, Phone Specs API, Mobile Specs API, Fastify API, TypeScript REST API, Vercel Serverless API, smartphone specs scraper, camera score API, open source phone database -->
 
 ## 📄 License
 
