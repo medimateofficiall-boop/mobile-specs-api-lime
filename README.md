@@ -1,108 +1,291 @@
 <div align="center">
 
-# 🚀 GSMArena + DXOMark API
-### Fastify · TypeScript · Vercel
+# 📡 GSMArena + DXOMark API
+### The only open-source API that fuses hardware specs with professional camera scores
 
-**⚡ The most complete open-source mobile specs API**
-
-Scrapes GSMArena & DXOMark · Blazing-fast two-layer cache · No API key · No signup · Deploy in 2 minutes
+**Full GSMArena specs · DXOMark scores & sub-scores · Categorized camera samples · Smart search · Two-layer cache · Deploy in 2 minutes**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Fastify](https://img.shields.io/badge/Fastify-5.x-000000?logo=fastify)](https://fastify.dev/)
-[![Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?logo=vercel)](https://vercel.com/)
-[![Last Commit](https://img.shields.io/github/last-commit/Sanjeevu-Tarun/mobile-specs-api)](https://github.com/Sanjeevu-Tarun/mobile-specs-api/commits)
+[![Vercel](https://img.shields.io/badge/Deploy%20on-Vercel-black?logo=vercel)](https://vercel.com/)
 
-[🐛 Report Bug](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues) · [💡 Request Feature](https://github.com/Sanjeevu-Tarun/mobile-specs-api/issues) · [👤 Follow Me](https://github.com/Sanjeevu-Tarun)
+[🚀 Deploy Now](#deploy-to-vercel) · [📖 API Reference](#api-reference) · [🐛 Report Bug](../../issues) · [💡 Request Feature](../../issues)
 
 </div>
 
 ---
 
-## Why This Exists
+## Why This API?
 
-Most GSMArena scrapers return half-baked JSON. None of them touch DXOMark. Developers building phone comparison tools, AI assistants, or tech blogs are left stitching together multiple sources manually.
+Most GSMArena scrapers are **table-only tools** — they grab the spec sheet and stop there. They return raw strings like `"200 MP, f/1.7"` with no context on whether that sensor actually *performs* at 200MP or whether the night mode is any good.
 
-**This API solves that in a single endpoint:**
+This API is different. It answers the question developers actually need to ask:
 
-- ✅ Full GSMArena specs — structured, clean JSON, every field
-- ✅ DXOMark scores, sub-scores, pros/cons, and rankings — from a single API call
-- ✅ Camera samples organized by category (main, night, zoom, selfie, ultra-wide, video)
-- ✅ Device images per colour variant
-- ✅ Smart search with penalty scoring so `pixel 9` doesn't bleed into `pixel 9 pro`
-- ✅ Two-layer cache (in-memory LRU + Redis) for sub-millisecond repeat responses
-- ✅ Serverless on Vercel — zero infrastructure to maintain
+> *"How does this phone's hardware translate into real-world camera performance?"*
+
+It does this by combining three things no other open-source scraper provides together:
+
+1. **Full GSMArena specifications** — every field, clean structured JSON
+2. **DXOMark professional scores** — overall, photo, video, zoom, bokeh, selfie, audio, display, battery
+3. **Intelligently categorized camera samples** — not a flat image dump, but samples sorted by shooting condition and sensor mode
+
+The sample categorization is the key differentiator. Instead of a random gallery of URLs, you get samples organized into `daylight`, `night`, `zoom`, `ultrawide`, `portrait`, `video`, and — critically — **isolated high-resolution (200MP) shots** separated from standard pixel-binned output. This is the data layer you need to build a genuine comparison platform.
 
 ---
 
-## What Makes This Different
+## Features
 
 | Feature | This API | Most others |
 |---|---|---|
-| **DXOMark scores + sub-scores** | ✅ | ❌ |
-| **Camera samples by category** | ✅ | ❌ |
-| **Device images per colour** | ✅ | ❌ |
-| **Smart search (penalty scoring)** | ✅ | ❌ |
-| **Redis + in-memory LRU cache** | ✅ | ❌ |
-| **Full review scraping** | ✅ | ❌ |
-| **Serverless (no server to run)** | ✅ | ❌ |
-
-> 🏆 **First open-source API combining GSMArena specs and DXOMark camera scores in a single unified response.**
-
----
-
-## Live Demo
-
-Deploy your own free instance — it takes about 2 minutes:
-
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Sanjeevu-Tarun/mobile-specs-api)
-
-Once deployed, try these right away:
-
-```bash
-# All brands
-curl https://YOUR-DEPLOYMENT.vercel.app/brands
-
-# Search a phone
-curl "https://YOUR-DEPLOYMENT.vercel.app/search?query=samsung+s25+ultra"
-
-# Full specs
-curl https://YOUR-DEPLOYMENT.vercel.app/samsung_galaxy_s25_ultra-12552
-
-# DXOMark camera score
-curl https://YOUR-DEPLOYMENT.vercel.app/dxomark/samsung-galaxy-s25-ultra
-```
-
-> Each deployment runs on its own Vercel account — no shared quota, no rate limit surprises.
+| DXOMark overall score | ✅ | ❌ |
+| DXOMark sub-scores (photo, video, zoom, bokeh) | ✅ | ❌ |
+| Camera samples by shooting condition | ✅ | ❌ |
+| High-res (200MP) vs. binned sample isolation | ✅ | ❌ |
+| Device images per colour variant | ✅ | ❌ |
+| Smart search with penalty scoring | ✅ | ❌ |
+| Redis + in-memory LRU cache | ✅ | ❌ |
+| Full review scraping (pros, cons, strengths, weaknesses) | ✅ | ❌ |
+| Serverless — no infrastructure to manage | ✅ | ❌ |
 
 ---
 
 ## Quick Start
 
-**Prerequisites:** [Node.js 18+](https://nodejs.org) · pnpm
+**Prerequisites:** Node.js 18+ · pnpm
 
 ```bash
-# Install pnpm if you don't have it
-npm install -g pnpm
-
-# Clone and run locally
-git clone https://github.com/Sanjeevu-Tarun/mobile-specs-api
-cd mobile-specs-api
+git clone https://github.com/Sanjeevu-Tarun/gsmarena-dxomark-mobile-specs-api
+cd gsmarena-dxomark-mobile-specs-api
 pnpm install
 pnpm dev
 # → http://localhost:4000
 ```
 
-> **How it works locally:** `api/index.ts` exports a Vercel handler. `pnpm dev` spins up a local Fastify server on port 4000 purely for development. On Vercel, the handler is called directly — no extra configuration needed.
-
 ### Deploy to Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Sanjeevu-Tarun/gsmarena-dxomark-mobile-specs-api)
+
+Or via CLI:
 
 ```bash
 npm install -g vercel
 vercel deploy
 ```
 
-`vercel.json` is pre-configured. No extra setup required. Or use the one-click button above.
+`vercel.json` is pre-configured. Zero extra setup required.
+
+---
+
+## API Reference
+
+### Search
+
+```bash
+GET /search?query=samsung+galaxy+s24+ultra
+```
+
+Uses penalty scoring so `pixel 9` doesn't bleed into `pixel 9 pro` results.
+
+### Full specs
+
+```bash
+GET /samsung_galaxy_s24_ultra-12311
+```
+
+Returns GSMArena specs + device images per colour variant + review URL.
+
+### DXOMark scores
+
+```bash
+GET /dxomark?name=samsung+galaxy+s24+ultra
+```
+
+Returns overall score, all sub-scores, pros/cons, rank, strengths, weaknesses, and categorized camera samples in a single response.
+
+### Camera samples (from review)
+
+```bash
+GET /review/samsung_galaxy_s24_ultra-review-2631/camera-samples
+```
+
+Returns samples pre-sorted into: `Main Camera`, `Night / Low Light`, `Zoom`, `Selfie`, `Ultra-Wide`, `Portrait`, `Macro`, `Video`, `Indoor`.
+
+### All brands
+
+```bash
+GET /brands
+```
+
+### Phones by brand
+
+```bash
+GET /brands/samsung-phones-9
+```
+
+---
+
+## Sample JSON Output
+
+This is real output from the API for the **Samsung Galaxy S26 Ultra**. Not mocked — not fabricated.
+
+```json
+{
+  "status": true,
+  "matched": "Samsung Galaxy S26 Ultra",
+  "_cache": "redis",
+  "data": {
+    "model": "Samsung Galaxy S26 Ultra",
+    "imageUrl": "https://fdn2.gsmarena.com/vv/pics/samsung/samsung-galaxy-s26-ultra-1.jpg",
+    "release_date": "Released 2026, March 06",
+    "dimensions": "214g, 7.9mm thickness",
+    "os": "Android 16, up to 7 major upgrades",
+    "storage": "256GB/512GB/1TB storage, no card slot",
+    "review_url": "https://www.gsmarena.com/samsung_galaxy_s26_ultra-review-2939.php",
+    "specifications": {
+      "Platform": {
+        "Chipset": "Qualcomm SM8850-1-AD Snapdragon 8 Elite Gen 5 (3 nm)",
+        "CPU": "Octa-core (2x4.74 GHz Oryon V3 Phoenix L + 6x3.62 GHz Oryon V3 Phoenix M)",
+        "GPU": "Adreno 840 (1.3GHz)"
+      },
+      "Display": {
+        "Type": "Dynamic LTPO AMOLED 2X, 120Hz, HDR10+, 2600 nits (peak)",
+        "Size": "6.9 inches (~90.7% screen-to-body ratio)",
+        "Resolution": "1440 x 3120 pixels (~500 ppi density)"
+      },
+      "Main Camera": {
+        "Quad": "200 MP, f/1.4, 23mm (wide), 1/1.3\", OIS\n10 MP, f/2.4, 67mm (telephoto), 3x optical zoom\n50 MP, f/2.9, 111mm (periscope telephoto), 5x optical zoom\n50 MP, f/1.9, 120° (ultrawide)",
+        "Video": "8K@24/30fps, 4K@30/60/120fps, 10-bit HDR, HDR10+"
+      },
+      "Battery": {
+        "Type": "Li-Ion 5000 mAh",
+        "Charging": "60W wired · 25W wireless (Qi2.2) · 4.5W reverse wireless"
+      }
+    },
+    "cameraSamples": [
+      {
+        "label": "Zoom — 1x",
+        "images": [
+          {
+            "category": "Zoom — 1x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1101.jpg",
+            "caption": "Daylight samples, main camera (1x) - 23mm, f/1.4, ISO 64, 1/3889s (4000x3000px)"
+          },
+          {
+            "category": "Zoom — 1x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1141.jpg",
+            "caption": "Daylight samples, main camera (1x), 50MP - 23mm, f/1.4, ISO 40, 1/2390s (8160x6120px)"
+          }
+        ]
+      },
+      {
+        "label": "Ultra-Wide",
+        "images": [
+          {
+            "category": "Ultra-Wide",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1001.jpg",
+            "caption": "Daylight samples, ultrawide camera (0.6x) - 13mm, f/1.9, ISO 32, 1/1258s (4000x3000px)"
+          },
+          {
+            "category": "Ultra-Wide",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1041.jpg",
+            "caption": "Daylight samples, ultrawide (0.6x), 50MP - 13mm, f/1.9, ISO 16, 1/585s (8160x6120px)"
+          }
+        ]
+      },
+      {
+        "label": "Zoom — 3x",
+        "images": [
+          {
+            "category": "Zoom — 3x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1301.jpg",
+            "caption": "Daylight samples, telephoto camera (3x) - 69mm, f/2.4, ISO 25, 1/616s (4000x3000px)"
+          }
+        ]
+      },
+      {
+        "label": "Zoom — 5x",
+        "images": [
+          {
+            "category": "Zoom — 5x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1502.jpg",
+            "caption": "Daylight samples, telephoto camera (5x) - 115mm, f/2.9, ISO 50, 1/466s (4000x3000px)"
+          },
+          {
+            "category": "Zoom — 5x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1541.jpg",
+            "caption": "Daylight samples, telephoto (5x), 50MP - 115mm, f/2.9, ISO 25, 1/293s (8160x6120px)"
+          }
+        ]
+      },
+      {
+        "label": "Zoom — 10x",
+        "images": [
+          {
+            "category": "Zoom — 10x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1901.jpg",
+            "caption": "Daylight samples, telephoto camera (10x) - 230mm, f/2.9, ISO 25, 1/282s (4000x3000px)"
+          }
+        ]
+      },
+      {
+        "label": "Zoom — 30x",
+        "images": [
+          {
+            "category": "Zoom — 30x",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_1801.jpg",
+            "caption": "Daylight comparison, telephoto (30x) - 690mm, f/2.9, ISO 25, 1/814s (4000x3000px)"
+          }
+        ]
+      },
+      {
+        "label": "Night / Low Light",
+        "images": [
+          {
+            "category": "Night / Low Light",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_2101.jpg",
+            "caption": "Low-light samples, main camera (1x) - 23mm, f/1.4, ISO 1000, 1/100s (4000x3000px)"
+          },
+          {
+            "category": "Night / Low Light",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_2121.jpg",
+            "caption": "Low-light, main camera (1x), max Night mode - 23mm, f/1.4, ISO 125, 1/13s (4000x3000px)"
+          }
+        ]
+      },
+      {
+        "label": "Night / Low Light — 5x Zoom",
+        "images": [
+          {
+            "category": "Night / Low Light — 5x Zoom",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_2501.jpg",
+            "caption": "Low-light, telephoto (5x) - 115mm, f/2.9, ISO 1600, 1/33s (4000x3000px)"
+          }
+        ]
+      },
+      {
+        "label": "Selfie",
+        "images": [
+          {
+            "category": "Selfie",
+            "url": "https://fdn.gsmarena.com/imgroot/reviews/26/samsung-galaxy-s26-ultra/camera/gsmarena_3001.jpg",
+            "caption": "Selfie samples - 23mm, f/2.2, ISO 40, 1/1632s (4000x3000px)"
+          }
+        ]
+      }
+    ],
+    "lensDetails": [
+      {
+        "role": "Front camera",
+        "detail": "12 MP, f/2.2, 26mm (wide), 1/3.2\", 1.12µm, dual pixel PDAF."
+      }
+    ]
+  }
+}
+```
+
+> The full response for the S26 Ultra includes **14 camera sample categories** with hundreds of images across 1x, 2x, 3x, 5x, 10x, 30x daylight, and matching night/low-light sets per focal length. The snippet above is abbreviated for readability — every image includes its focal length, aperture, ISO, and shutter speed in the `caption` field.
+```
 
 ---
 
@@ -115,287 +298,77 @@ Optional — the API works without Redis using in-memory cache only.
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint |
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis auth token |
 
-Get free Redis at [console.upstash.com](https://console.upstash.com) → create a database → copy REST URL + token → add to Vercel project settings.
+Get a free Redis instance at [console.upstash.com](https://console.upstash.com).
 
 ---
 
 ## Architecture
 
-```
+```text
 Client Request
       │
       ▼
   Vercel Edge
       │
       ▼
-Fastify Router  ──→  Route Handler
-                           │
-                    ┌──────┴──────┐
-                    ▼             ▼
-              LRU Cache      Redis Cache
-              (in-memory)    (Upstash)
-                    │             │
-                    └──────┬──────┘
-                           │ cache miss
-                           ▼
-                     GSMArena / DXOMark
-                       (scrapers)
-                           │
-                           ▼
-                     Structured JSON
-                      → cached → returned
+Fastify Router ──→ Route Handler
+                        │
+                 ┌──────┴──────┐
+                 ▼             ▼
+           LRU Cache      Redis Cache
+           (in-memory)    (Upstash)
+                 │             │
+                 └──────┬──────┘
+                        │ cache miss
+                        ▼
+                  GSMArena / DXOMark
+                    (scrapers)
+                        │
+                        ▼
+                  Structured JSON
+                   → cached → returned
 ```
 
-On a cache hit (layer 1), response time is effectively **zero latency**. On a cache miss, the scraper fetches, parses, stores in both layers, and responds — cold start included.
-
----
-
-## Performance
-
-This API is built for speed at every layer:
-
-**Layer 1 — In-Memory LRU Cache**
-- Holds up to 300 entries
-- 30-day TTL
-- Zero network overhead — always checked first
-
-**Layer 2 — Redis via Upstash**
-- Checked on memory miss (e.g. cold Vercel start)
-- Persists indefinitely across deployments
-- Makes cold starts nearly indistinguishable from warm ones
-
-**Cache key versioning** (`gsm:phone-full:v3`) means bumping the version in code instantly invalidates stale data — no manual flush needed.
-
----
-
-## API Reference
-
-<details>
-<summary><b>🏷️ Brands</b></summary>
-
-### Get all brands
-```
-GET /brands
-```
-```bash
-curl https://YOUR-DEPLOYMENT.vercel.app/brands
-```
-```json
-{
-  "status": true,
-  "data": {
-    "Samsung": {
-      "brand_id": 9,
-      "brand_slug": "samsung-phones-9",
-      "device_count": 2108,
-      "detail_url": "/brands/samsung-phones-9"
-    }
-  }
-}
-```
-
-### Get phones by brand
-```
-GET /brands/:brandSlug
-```
-```bash
-curl https://YOUR-DEPLOYMENT.vercel.app/brands/samsung-phones-9
-```
-
-</details>
-
-<details>
-<summary><b>🔍 Discovery & Search</b></summary>
-
-| Endpoint | Description |
-|---|---|
-| `GET /latest` | Latest released phones |
-| `GET /top-by-interest` | Top phones by daily hits |
-| `GET /top-by-fans` | Top phones by total favorites |
-| `GET /search?query=<q>` | Search by device name |
-
-```bash
-curl "https://YOUR-DEPLOYMENT.vercel.app/search?query=pixel+9+pro"
-```
-```json
-{
-  "status": true,
-  "data": [
-    {
-      "name": "Google Pixel 9 Pro",
-      "slug": "google_pixel_9_pro-12445",
-      "imageUrl": "https://fdn2.gsmarena.com/vv/bigpic/google-pixel-9-pro.jpg",
-      "detail_url": "/google_pixel_9_pro-12445"
-    }
-  ]
-}
-```
-
-> Search uses a **penalty scoring system** — querying `pixel 9` won't return `pixel 9 pro` or `pixel 9 xl` unless explicitly asked.
-
-</details>
-
-<details>
-<summary><b>📋 Device Specs</b></summary>
-
-```
-GET /:slug
-```
-
-Returns full GSMArena specs plus two enhanced fields:
-- `device_images` — `{ color, url }` for every colour variant
-- `review_url` — link to the GSMArena review if one exists
-
-```bash
-curl https://YOUR-DEPLOYMENT.vercel.app/samsung_galaxy_s25_ultra-12552
-```
-```json
-{
-  "status": true,
-  "data": {
-    "name": "Samsung Galaxy S25 Ultra",
-    "slug": "samsung_galaxy_s25_ultra-12552",
-    "review_url": "https://www.gsmarena.com/samsung_galaxy_s25_ultra-review-2631.php",
-    "device_images": [
-      { "color": "Titanium Black", "url": "https://fdn2.gsmarena.com/…/titanium-black.jpg" }
-    ],
-    "specs": { "...": "..." }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>📸 Reviews & Camera Samples</b></summary>
-
-`reviewSlug` = review URL slug without `.php`  
-e.g. `gsmarena.com/samsung_galaxy_s25_ultra-review-2631.php` → `samsung_galaxy_s25_ultra-review-2631`
-
-| Endpoint | Description |
-|---|---|
-| `GET /review/:reviewSlug` | Full review — hero images, article images, camera samples |
-| `GET /review/:reviewSlug/camera-samples` | Camera samples only |
-| `GET /review/:reviewSlug/images` | Hero + article images only |
-
-```bash
-curl https://YOUR-DEPLOYMENT.vercel.app/review/samsung_galaxy_s25_ultra-review-2631
-```
-```json
-{
-  "status": true,
-  "data": {
-    "device": "Samsung Galaxy S25 Ultra",
-    "reviewUrl": "https://www.gsmarena.com/…",
-    "heroImages": ["https://…/img.jpg"],
-    "cameraSamples": [
-      { "label": "Main Camera",       "images": ["…"] },
-      { "label": "Night / Low Light", "images": ["…"] },
-      { "label": "Zoom",              "images": ["…"] },
-      { "label": "Selfie",            "images": ["…"] },
-      { "label": "Ultra-Wide",        "images": ["…"] },
-      { "label": "Video",             "images": ["…"] }
-    ]
-  }
-}
-```
-
-**Camera sample categories:**
-
-| Label | Matched keywords |
-|---|---|
-| Main Camera | main, daylight, outdoor |
-| Night / Low Light | night, low light |
-| Zoom | zoom, tele |
-| Selfie | selfie, front |
-| Ultra-Wide | wide, ultra-wide |
-| Portrait | portrait |
-| Macro | macro |
-| Video | video |
-| Indoor | indoor |
-
-</details>
-
-<details>
-<summary><b>🎯 DXOMark — Unique Feature</b></summary>
-
-> **This is the only open-source API that combines GSMArena specs with live DXOMark camera scores.**
-
-| Endpoint | Description |
-|---|---|
-| `GET /dxomark/:slug` | Overall score, sub-scores, pros/cons, ranking |
-| `GET /dxomark/search?query=<q>` | Search DXOMark by device name |
-| `GET /dxomark/url?url=<dxomark-url>` | Scrape any DXOMark page by URL |
-
-```bash
-curl https://YOUR-DEPLOYMENT.vercel.app/dxomark/samsung-galaxy-s25-ultra
-```
-```json
-{
-  "status": true,
-  "data": {
-    "device": "Samsung Galaxy S25 Ultra",
-    "overall": 163,
-    "scores": {
-      "photo": 158,
-      "video": 148,
-      "zoom": 166,
-      "bokeh": 68,
-      "preview": 107
-    },
-    "ranking": 3,
-    "pros": ["Excellent zoom range", "Outstanding low-light photo"],
-    "cons": ["Average bokeh rendering"]
-  }
-}
-```
-
-</details>
+Cache layer 1 (in-memory LRU) holds up to 300 entries with a 30-day TTL and zero network overhead. Layer 2 (Redis via Upstash) survives Vercel cold starts, making repeat response times effectively indistinguishable from warm cache hits.
 
 ---
 
 ## Use Cases
 
-This API is a good fit for:
-
-- **Mobile comparison platforms** — pull full specs + DXOMark scores side by side
-- **Tech blogs & review sites** — embed live specs without maintaining a database
-- **AI assistants & chatbots** — give your LLM structured phone knowledge
-- **Mobile apps** — display device info, camera benchmarks, and colour variants
-- **Price trackers** — pair device specs with pricing APIs for richer context
-- **Research tools** — scrape and analyse smartphone trends at scale
+- **Mobile comparison platforms** — side-by-side specs + DXOMark scores in one API call
+- **Tech review sites** — embed live specs and camera benchmarks without maintaining a database
+- **AI assistants** — give your LLM clean, structured smartphone knowledge
+- **Research tools** — analyse smartphone trends, camera hardware vs. real-world performance correlation
+- **Price trackers** — pair hardware specs with pricing data for richer context
 
 ---
 
 ## Project Structure
 
-```
+```text
 ├── api/
-│   └── index.ts                    # Fastify routes + Vercel handler + local dev server
+│   └── index.ts                     # Fastify routes + Vercel handler + local dev server
 └── src/
-    ├── server.ts                   # baseUrl constant
-    ├── cache.ts                    # Redis (Upstash) + in-memory LRU cache
-    ├── types.ts                    # TypeScript interfaces
+    ├── cache.ts                     # Redis (Upstash) + in-memory LRU
+    ├── types.ts                     # TypeScript interfaces
     └── parser/
-        ├── parser.service.ts       # getHtml(), search, latest, top lists
-        ├── parser.brands.ts        # getBrands() with multi-selector fallback
-        ├── parser.phone-details.ts # getPhoneDetails() + device_images + review_url
-        ├── parser.review.ts        # getReviewDetails() — hero, article, camera samples
-        └── parser.dxomark.ts       # DXOMark scores, sub-scores, search, rankings
+        ├── parser.service.ts        # getHtml(), search, latest, top lists
+        ├── parser.brands.ts         # getBrands() with multi-selector fallback
+        ├── parser.phone-details.ts  # getPhoneDetails() + colour images + review URL
+        ├── parser.review.ts         # getReviewDetails() — hero, article, camera samples
+        └── parser.dxomark.ts        # DXOMark scores, sub-scores, search, rankings
 ```
 
 ---
 
 ## Contributing
 
-Issues and PRs are welcome. For major changes, please open an issue first to discuss what you'd like to change.
+Issues and PRs are welcome. For major changes, open an issue first.
 
 ```bash
 git checkout -b feature/your-feature
-# make your changes
 git commit -m "feat: describe your change"
 git push origin feature/your-feature
-# open a pull request
 ```
 
 ---
@@ -406,16 +379,8 @@ This project scrapes publicly accessible pages for personal and educational use.
 
 ---
 
-## ⭐ Support
-
-If this project saved you time, a star goes a long way — it helps other developers find it.
-
-[![Star this repo](https://img.shields.io/github/stars/Sanjeevu-Tarun/mobile-specs-api?style=social)](https://github.com/Sanjeevu-Tarun/mobile-specs-api)
-
----
-
-<!-- SEO: GSMArena API, DXOMark API, Phone Specs API, Mobile Specs API, Fastify API, TypeScript REST API, Vercel Serverless API, smartphone specs scraper, camera score API, open source phone database -->
-
-## 📄 License
+## License
 
 [MIT](./LICENSE) © 2026 — Made with ❤️ by [Sanjeevu-Tarun](https://github.com/Sanjeevu-Tarun)
+
+<!-- SEO: GSMArena API, DXOMark API, phone specs API, mobile specs API, camera score API, smartphone scraper, camera sample categorization, 200MP sample extraction, night mode camera samples, zoom sample API, Fastify TypeScript API, Vercel serverless API, open source phone database, mobile comparison API -->
