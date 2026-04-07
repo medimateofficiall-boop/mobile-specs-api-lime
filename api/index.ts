@@ -985,7 +985,31 @@ app.get('/debug-camera', async (request: any, reply: any) => {
 // Format: 'device-slug-id': 'https://www.gsmarena.com/full-camera-article-url.php'
 // ─────────────────────────────────────────────────────────────────────────────
 const CAMERA_URL_OVERRIDES: Record<string, string> = {
-  'vivo_iqoo_z7_pro-12484': 'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
+  // ── iQOO Z series ────────────────────────────────────────────────────────
+  'vivo_iqoo_z7_pro-12484':       'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
+  'vivo_iqoo_z9s_pro_5g-13368':   'https://www.gsmarena.com/vivo_iqoo_z9s_pro_5g_photos_videos_camera_samples_specs-news-63986.php',
+
+  // ── iQOO numbered flagships ───────────────────────────────────────────────
+  'vivo_iqoo_12-12691':            'https://www.gsmarena.com/vivo_iqoo_12_photos_videos_camera_samples-news-60756.php',
+  'vivo_iqoo_13-13462':            'https://www.gsmarena.com/vivo_iqoo_13_photos_camera_samples_specs-news-65468.php',
+  'vivo_iqoo_15-14100':            'https://www.gsmarena.com/vivo_iqoo_15_photos_camera_samples_specs-news-70260.php',
+};
+
+// ── iQOO slug aliases ─────────────────────────────────────────────────────
+// GSMArena sometimes uses different slug IDs for the same device (e.g. the
+// India vs global variant). List additional slug IDs that should map to the
+// same camera article URL.
+const CAMERA_URL_OVERRIDE_ALIASES: Record<string, string> = {
+  // iQOO Z7 Pro 5G (alternate slug seen in the wild)
+  'vivo_iqoo_z7_pro_5g-12601':    'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
+  // iQOO Z9s Pro (non-5G slug, same article)
+  'vivo_iqoo_z9s_pro-13369':      'https://www.gsmarena.com/vivo_iqoo_z9s_pro_5g_photos_videos_camera_samples_specs-news-63986.php',
+  // iQOO 12 (China slug)
+  'vivo_iqoo_12_(china)-12690':   'https://www.gsmarena.com/vivo_iqoo_12_photos_videos_camera_samples-news-60756.php',
+  // iQOO 13 (China slug)
+  'vivo_iqoo_13_(china)-13461':   'https://www.gsmarena.com/vivo_iqoo_13_photos_camera_samples_specs-news-65468.php',
+  // iQOO 15 (China slug)
+  'vivo_iqoo_15_(china)-14099':   'https://www.gsmarena.com/vivo_iqoo_15_photos_camera_samples_specs-news-70260.php',
 };
 
 app.get('/phone', async (request, reply) => {
@@ -1102,14 +1126,29 @@ app.get('/phone', async (request, reply) => {
     await tryCameraUrl(specs.review_url);
   }
 
-  // Apply known override if still no samples
-  if (cameraSamples.length === 0 && CAMERA_URL_OVERRIDES[deviceSlug]) {
-    const overrideUrl = CAMERA_URL_OVERRIDES[deviceSlug];
-    debug.steps.push({ action: 'override_attempt', url: overrideUrl });
-    if (await tryCameraUrl(overrideUrl)) {
-      specs.review_url = overrideUrl;
-      debug.review_url = overrideUrl;
-      debug.steps.push({ action: 'override_found', url: overrideUrl });
+  // Apply known override if still no samples (checks primary map, aliases, and ID-agnostic prefix match)
+  if (cameraSamples.length === 0) {
+    const _allOverrides = { ...CAMERA_URL_OVERRIDES, ...CAMERA_URL_OVERRIDE_ALIASES };
+    const overrideUrl: string | undefined =
+      _allOverrides[deviceSlug] ??
+      (() => {
+        // Strip the numeric GSMArena ID suffix and match on slug name alone.
+        // This means you don't need to know the exact GSMArena ID when adding
+        // a new override — just use any placeholder ID (e.g. -00000).
+        const slugBase = deviceSlug.replace(/-\d+$/, '');
+        for (const [key, url] of Object.entries(_allOverrides)) {
+          if (key.replace(/-\d+$/, '') === slugBase) return url;
+        }
+        return undefined;
+      })();
+
+    if (overrideUrl) {
+      debug.steps.push({ action: 'override_attempt', url: overrideUrl });
+      if (await tryCameraUrl(overrideUrl)) {
+        specs.review_url = overrideUrl;
+        debug.review_url = overrideUrl;
+        debug.steps.push({ action: 'override_found', url: overrideUrl });
+      }
     }
   }
   
