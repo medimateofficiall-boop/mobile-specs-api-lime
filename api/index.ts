@@ -985,6 +985,7 @@ app.get('/debug-camera', async (request: any, reply: any) => {
 // Format: 'device-slug-id': 'https://www.gsmarena.com/full-camera-article-url.php'
 // ─────────────────────────────────────────────────────────────────────────────
 const CAMERA_URL_OVERRIDES: Record<string, string> = {
+<<<<<<< HEAD
 
   // ══════════════════════════════════════════════════════════════════════════
   // iQOO numbered flagship series (2019 → 2026)
@@ -1168,6 +1169,16 @@ const CAMERA_URL_OVERRIDES: Record<string, string> = {
   'vivo_iqoo_z11_turbo_5g-14392':    'https://www.gsmarena.com/vivo_iqoo_z11_turbo_camera_samples-news-70264.php',
   // iQOO Z11x (2026)
   'vivo_iqoo_z11x_5g-14531':         'https://www.gsmarena.com/vivo_iqoo_z11x_camera_samples-news-70265.php',
+=======
+  // ── iQOO Z series ────────────────────────────────────────────────────────
+  'vivo_iqoo_z7_pro-12484':       'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
+  'vivo_iqoo_z9s_pro_5g-13368':   'https://www.gsmarena.com/vivo_iqoo_z9s_pro_5g_photos_videos_camera_samples_specs-news-63986.php',
+
+  // ── iQOO numbered flagships ───────────────────────────────────────────────
+  'vivo_iqoo_12-12691':            'https://www.gsmarena.com/vivo_iqoo_12_photos_videos_camera_samples-news-60756.php',
+  'vivo_iqoo_13-13462':            'https://www.gsmarena.com/vivo_iqoo_13_photos_camera_samples_specs-news-65468.php',
+  'vivo_iqoo_15-14100':            'https://www.gsmarena.com/vivo_iqoo_15_photos_camera_samples_specs-news-70260.php',
+>>>>>>> a740e262fad150c29c15cf31e907ac41c4dda7a1
 };
 
 // ── iQOO slug aliases ─────────────────────────────────────────────────────
@@ -1176,6 +1187,7 @@ const CAMERA_URL_OVERRIDES: Record<string, string> = {
 // same camera article URL.
 const CAMERA_URL_OVERRIDE_ALIASES: Record<string, string> = {
   // iQOO Z7 Pro 5G (alternate slug seen in the wild)
+<<<<<<< HEAD
   'vivo_iqoo_z7_pro_5g-12601':       'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
   // iQOO Z9s Pro (non-5G slug, same article)
   'vivo_iqoo_z9s_pro-13369':         'https://www.gsmarena.com/vivo_iqoo_z9s_pro_5g_photos_videos_camera_samples_specs-news-63986.php',
@@ -1191,6 +1203,17 @@ const CAMERA_URL_OVERRIDE_ALIASES: Record<string, string> = {
   'vivo_iqoo_neo9_pro_(china)-12764': 'https://www.gsmarena.com/vivo_iqoo_neo_9_pro_camera_samples-news-61484.php',
   // iQOO Neo9 (alternate China slug)
   'vivo_iqoo_neo9_(china)-12765':    'https://www.gsmarena.com/vivo_iqoo_neo_9_camera_samples-news-61483.php',
+=======
+  'vivo_iqoo_z7_pro_5g-12601':    'https://www.gsmarena.com/vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php',
+  // iQOO Z9s Pro (non-5G slug, same article)
+  'vivo_iqoo_z9s_pro-13369':      'https://www.gsmarena.com/vivo_iqoo_z9s_pro_5g_photos_videos_camera_samples_specs-news-63986.php',
+  // iQOO 12 (China slug)
+  'vivo_iqoo_12_(china)-12690':   'https://www.gsmarena.com/vivo_iqoo_12_photos_videos_camera_samples-news-60756.php',
+  // iQOO 13 (China slug)
+  'vivo_iqoo_13_(china)-13461':   'https://www.gsmarena.com/vivo_iqoo_13_photos_camera_samples_specs-news-65468.php',
+  // iQOO 15 (China slug)
+  'vivo_iqoo_15_(china)-14099':   'https://www.gsmarena.com/vivo_iqoo_15_photos_camera_samples_specs-news-70260.php',
+>>>>>>> a740e262fad150c29c15cf31e907ac41c4dda7a1
 };
 
 app.get('/phone', async (request, reply) => {
