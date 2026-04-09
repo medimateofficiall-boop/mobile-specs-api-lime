@@ -317,68 +317,140 @@ export async function getPhoneDetails(slug: string): Promise<IPhoneDetails> {
         const picHtml = await getHtml(picturesPageUrl);
         const $pic = cheerio.load(picHtml);
 
-        // ── Pass 0: extract full gallery from inline JS arrays ─────────────
-        // GSMArena renders the pictures gallery via JavaScript, not static img tags.
-        // The page embeds arrays like:
-        //   var imgroot="//fdn2.gsmarena.com/vv/bigpic/";
-        //   var pics=["samsung_galaxy_s25-001.jpg","samsung_galaxy_s25-002.jpg",...];
-        // Cheerio can't execute JS, so we must extract these from the raw script text.
+        // ── DEBUG: dump script content to understand GSMArena's page structure ──
         const scriptBlob = $pic('script').map((_, el) => $pic(el).html() || '').get().join('\n');
+        // Log any script lines that look image-related so we can see the real var names
+        const imageScriptLines = scriptBlob.split('\n').filter(l =>
+          /imgroot|bigpic|pics\s*=|photos\s*=|images\s*=|fdn2|vv\/|\.jpg/i.test(l)
+        ).slice(0, 30);
+        console.log(`[pictures-page] ${slug} — image-related script lines:`, imageScriptLines);
 
-        // Extract the imgroot base URL (normalise protocol-relative // → https://)
+        // Log a sample of all <li> elements with data- attrs to find color variant pattern
+        const liAttrs: string[] = [];
+        $pic('li').each((_, el) => {
+          const attrs = Object.keys((el as any).attribs || {})
+            .filter(a => a.startsWith('data-') || a === 'class' || a === 'title')
+            .map(a => `${a}="${$pic(el).attr(a)}"`)
+            .join(' ');
+          if (attrs) liAttrs.push(`<li ${attrs}>`);
+        });
+        console.log(`[pictures-page] ${slug} — li attrs sample (first 10):`, liAttrs.slice(0, 10));
+
+        // ── Pass 0A: extract full gallery from inline JS — multiple patterns ──
+        // GSMArena uses various variable names across different page versions.
+        // We try all known patterns.
+
+        // Pattern 1: var imgroot + var pics (older pages)
         const imgrootMatch = scriptBlob.match(/var\s+imgroot\s*=\s*["']([^"']+)["']/);
         const rawImgroot = imgrootMatch?.[1] || '';
         const imgroot = rawImgroot.startsWith('//')
           ? `https:${rawImgroot}`
           : rawImgroot;
 
-        // Extract the pics array — filenames relative to imgroot
-        const picsArrayMatch = scriptBlob.match(/var\s+pics\s*=\s*\[([^\]]+)\]/);
-        if (picsArrayMatch && imgroot) {
-          const filenames = Array.from(picsArrayMatch[1].matchAll(/"([^"]+\.jpe?g)"/gi))
-            .map(m => m[1]);
-          for (const filename of filenames) {
-            const fullUrl = `${imgroot}${filename}`;
-            if (!officialImages.includes(fullUrl)) officialImages.push(fullUrl);
-          }
-        }
+        // Try several known array variable names
+        const arrayVarPatterns = [
+          /var\s+pics\s*=\s*\[([^\]]+)\]/,
+          /var\s+photos\s*=\s*\[([^\]]+)\]/,
+          /var\s+images\s*=\s*\[([^\]]+)\]/,
+          /"pics"\s*:\s*\[([^\]]+)\]/,
+          /"photos"\s*:\s*\[([^\]]+)\]/,
+        ];
 
-        // Fallback: pics stored as full URLs directly in the array
-        if (officialImages.length === 0 && picsArrayMatch) {
-          const urls = Array.from(picsArrayMatch[1].matchAll(/"(https?:[^"]+\.jpe?g)"/gi))
-            .map(m => m[1]);
-          for (const url of urls) {
+        for (const pattern of arrayVarPatterns) {
+          const arrayMatch = scriptBlob.match(pattern);
+          if (!arrayMatch) continue;
+          const inner = arrayMatch[1];
+
+          // Sub-case A: relative filenames + imgroot base
+          if (imgroot) {
+            const filenames = Array.from(inner.matchAll(/"([^"]+\.jpe?g)"/gi)).map(m => m[1]);
+            for (const filename of filenames) {
+              if (!filename.startsWith('http')) {
+                const fullUrl = `${imgroot}${filename}`;
+                if (!officialImages.includes(fullUrl)) officialImages.push(fullUrl);
+              }
+            }
+          }
+          // Sub-case B: full URLs in the array
+          const fullUrls = Array.from(inner.matchAll(/"((?:https?:)?\/\/[^"]+\.jpe?g)"/gi)).map(m => {
+            const u = m[1];
+            return u.startsWith('//') ? `https:${u}` : u;
+          });
+          for (const url of fullUrls) {
             if (!officialImages.includes(url)) officialImages.push(url);
           }
+          if (officialImages.length > 0) break; // stop if we found images
         }
 
-        // ── Pass 1: also scan <img> tags for any /vv/pics/ images not in JS ─
+        // ── Pass 0B: scan ALL <a href> for full-res image links ───────────────
+        // GSMArena wraps gallery thumbnails in <a href="full-res-url">.
+        // This catches images the JS approach misses.
+        $pic('a[href]').each((_, el) => {
+          const href = ($pic(el).attr('href') || '').trim();
+          const fullHref = href.startsWith('//') ? `https:${href}` : href;
+          if (
+            fullHref.match(/\.jpe?g$/i) &&
+            (fullHref.includes('gsmarena.com') || fullHref.includes('fdn2.') || fullHref.includes('fdn.')) &&
+            !fullHref.includes('/reviews/') &&
+            !fullHref.includes('/lifestyle/') &&
+            !officialImages.includes(fullHref)
+          ) {
+            officialImages.push(fullHref);
+          }
+        });
+
+        // ── Pass 1: scan <img> tags for /vv/pics/ images not already captured ─
         $pic('img').each((_, el) => {
           const src = $pic(el).attr('src') || $pic(el).attr('data-src') || '';
-          if (src.includes('/vv/pics/') && src.includes('gsmarena.com') && src.match(/\.jpe?g$/i)) {
-            if (!officialImages.includes(src)) officialImages.push(src);
+          const fullSrc = src.startsWith('//') ? `https:${src}` : src;
+          if (fullSrc.includes('/vv/pics/') && fullSrc.includes('gsmarena.com') && fullSrc.match(/\.jpe?g$/i)) {
+            if (!officialImages.includes(fullSrc)) officialImages.push(fullSrc);
           }
         });
         // First official image is the hero
         if (officialImages.length > 0) hdImageUrl = officialImages[0];
+        console.log(`[pictures-page] ${slug} — officialImages count after all passes: ${officialImages.length}`);
 
-        // ── Pass 2: color variants from the 3D model section ───────────────
-        // GSMArena renders color chips as <li data-seo-image="URL">ColorName</li>
-        // under selectors like ul.color-list, #model-3d ul, or .model-3d ul
-        $pic('ul.color-list li, #model-3d li, .model-3d li, [class*="color-list"] li').each((idx, el) => {
-          const $li   = $pic(el);
-          const imgUrl = ($li.attr('data-seo-image') || $li.attr('data-image') || '').trim();
-          const colorName = ($li.attr('title') || $li.find('span').text() || $li.text()).trim();
-          if (colorName && imgUrl && imgUrl.startsWith('http')) {
-            colorVariants.push({ colorName, imageUrl: imgUrl, isDefault: idx === 0 });
+        // ── Pass 2: color variants from the 3D model section ───────────────────
+        // Try all known attribute/selector patterns GSMArena has used
+        const colorSelectors = [
+          'ul.color-list li',
+          '#model-3d li',
+          '.model-3d li',
+          '[class*="color-list"] li',
+          '[class*="model-3d"] li',
+          'ul[class*="colors"] li',
+          '.pictures-colors li',
+          '.color-buttons li',
+        ];
+        $pic(colorSelectors.join(', ')).each((idx, el) => {
+          const $li = $pic(el);
+          const imgUrl = (
+            $li.attr('data-seo-image') ||
+            $li.attr('data-image') ||
+            $li.attr('data-image-url') ||
+            $li.attr('data-src') ||
+            $li.find('img').attr('src') ||
+            $li.find('img').attr('data-src') ||
+            ''
+          ).trim();
+          const rawUrl = imgUrl.startsWith('//') ? `https:${imgUrl}` : imgUrl;
+          const colorName = (
+            $li.attr('title') ||
+            $li.attr('data-color') ||
+            $li.find('span').text() ||
+            $li.text()
+          ).trim();
+          if (colorName && rawUrl && (rawUrl.startsWith('http') || rawUrl.startsWith('//'))) {
+            colorVariants.push({ colorName, imageUrl: rawUrl, isDefault: idx === 0 });
           }
         });
+        console.log(`[pictures-page] ${slug} — colorVariants count: ${colorVariants.length}`);
 
-        // ── Fallback: infer color names from inline JS color array ─────────
-        // GSMArena embeds: var colors = ["Titanium Black","Titanium Gray",...];
-        // scriptBlob already built above in Pass 0 — reuse it here.
+        // ── Fallback: infer color names from inline JS color/colors array ──────
+        // scriptBlob already built above — reuse it here.
         if (colorVariants.length === 0 && officialImages.length > 0) {
-          const colorsMatch = scriptBlob.match(/(?:var\s+colors|"colors")\s*[=:]\s*\[([^\]]+)\]/);
+          const colorsMatch = scriptBlob.match(/(?:var\s+colors?|"colors?")\s*[=:]\s*\[([^\]]+)\]/);
           if (colorsMatch) {
             const names = Array.from(colorsMatch[1].matchAll(/"([^"]+)"/g)).map(m => m[1]);
             names.forEach((name, idx) => {
