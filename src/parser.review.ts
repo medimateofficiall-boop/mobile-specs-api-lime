@@ -76,15 +76,16 @@ function cleanImgUrl(src: string | undefined): string {
  */
 function thumbToFullRes(thumbUrl: string): string {
   if (!thumbUrl) return '';
-  if (!thumbUrl.includes('/imgroot/reviews/')) return thumbUrl;
+  // Handle all /imgroot/ CDN paths: /imgroot/reviews/, /imgroot/news/, /imgroot/articles/
+  if (!thumbUrl.includes('/imgroot/')) return thumbUrl;
 
   // Extract filename (gsmarena_NNNN.jpg or similar number-based filename)
   const filenameMatch = thumbUrl.match(/(gsmarena_\d+\.\w+)$/);
   if (!filenameMatch) return thumbUrl;
   const filename = filenameMatch[1];
 
-  // Find the section path (/camera/, /lifestyle/, /design/, /photos/)
-  const sections = ['/camera/', '/lifestyle/', '/design/', '/photos/'];
+  // Find the section path — news pages use /camera/ and /inline/ in addition to review sections
+  const sections = ['/camera/', '/inline/', '/lifestyle/', '/design/', '/photos/'];
   for (const section of sections) {
     const idx = thumbUrl.indexOf(section);
     if (idx !== -1) {
@@ -92,14 +93,12 @@ function thumbToFullRes(thumbUrl: string): string {
     }
   }
 
-  // Fallback: strip any /-token/ segment before the filename
+  // Fallback: strip any /-token/ segment before the filename (covers -184x111, -160, -1200w1 etc.)
   return thumbUrl.replace(/\/-[^/]+\/(?=gsmarena_)/, '/');
 }
 
 /** Return true if the URL still has a size token (shouldn't happen with new extractor) */
 function isThumbnailUrl(url: string): boolean {
-  // News article images don't have size tokens — always pass through
-  if (url.includes('/imgroot/news/')) return false;
   // Check for any path segment that looks like a size token: /-NNN/ or /-xNNN/
   return /\/-(\d|x\d)[^/]*\//.test(url);
 }
@@ -120,15 +119,75 @@ function isContentImage(src: string): boolean {
 }
 
 /**
- * Is this image URL a camera sample?
- * Matches both standard review paths and news article image paths:
- *   /imgroot/reviews/.../camera/...   <- standard review camera pages
- *   /imgroot/news/...                 <- news/camera-samples articles (e.g. iQOO Z7 Pro)
+ * Is this image URL a camera sample (lives under /imgroot/reviews/…/camera/)?
+ * These are the real camera samples — lifestyle/phone/sshots are article images.
  */
 function isCameraSampleImage(src: string): boolean {
-  if (src.includes('/imgroot/reviews/') && /\/camera\d*\//.test(src)) return true;
-  if (src.includes('/imgroot/news/')) return true;
+  // Match: /imgroot/reviews/ AND /camera OR /camera1 OR /camera2 etc
+  return src.includes('/imgroot/reviews/') && /\/camera\d*\//.test(src);
+}
+
+/**
+ * For GSMArena news/article camera pages (e.g. vivo_iqoo_z7_pro_5g_camera_samples_specs-news-59639.php),
+ * images are stored on different CDN paths than standard review pages:
+ *   - /vv/pics/...
+ *   - /imgroot/news/...
+ *   - /imgroot/articles/...
+ * We accept any real content image from the GSMArena CDN that isn't a UI chrome element.
+ *
+ * @param src - The image src URL to test.
+ * @param articleFolder - The article's own folder name extracted from the page URL
+ *   (e.g. "vivo_iqoo_z10_camera_samples-news-67343"). When provided, /inline/ images
+ *   are only accepted if their CDN path contains this same folder — this prevents
+ *   "related articles" widgets from bleeding in images from unrelated articles.
+ */
+function isNewsPageCameraImage(src: string, articleFolder?: string): boolean {
+  if (!src) return false;
+  if (!isContentImage(src)) return false;
+  // Must be from GSMArena CDN
+  if (!src.includes('gsmarena.com')) return false;
+  // Skip obvious non-sample images
+  if (/icon|logo|spacer|blank|pixel\.gif|arrow/.test(src)) return false;
+  // REJECT: article card thumbnails — always /-NNNxNNN/ format (e.g. /-184x111/)
+  // These appear in related-articles sidebars and are never camera samples
+  if (/\/-\d+x\d+\//.test(src)) return false;
+  // Accept standard review camera images
+  if (isCameraSampleImage(src)) return true;
+  // Accept news/article CDN paths — /camera/ subdirs are always article-specific, so
+  // they're unconditionally safe. /inline/ images appear in BOTH the article body AND
+  // in embedded "related article" widgets on the same page; for /inline/ we therefore
+  // require the image path to contain the article's own folder name when it is known.
+  const inSrc = (path: string) => src.includes(path);
+  if (inSrc('/imgroot/news/') || inSrc('/imgroot/articles/')) {
+    if (inSrc('/camera/')) return true;
+    if (inSrc('/inline/')) {
+      // If we know which article we're scraping, only accept inline images from
+      // that article's own folder. Unrelated-article images have a different folder
+      // in their path (e.g. /imgroot/news/25/04/huawei-mate-xt-sales-numbers/inline/...)
+      // and will be rejected.
+      if (articleFolder) {
+        return src.includes(articleFolder);
+      }
+      // No article folder known — fall back to accepting all inline (old behaviour)
+      return true;
+    }
+  }
+  // Accept /vv/pics/ (device press shots used on some news camera pages)
+  if (inSrc('/vv/pics/')) return true;
   return false;
+}
+
+/**
+ * Derive full-res URL for news-page images (e.g. /vv/pics/...).
+ * These may have size suffixes like -NN appended before the extension.
+ * Strip trailing -NNN size suffix from the base filename if present.
+ * e.g. /vv/pics/vivo/iqoo-z7-pro/photo-640.jpg -> /vv/pics/vivo/iqoo-z7-pro/photo.jpg
+ */
+function newsImageToFullRes(src: string): string {
+  // thumbToFullRes now handles all /imgroot/ paths (reviews, news, articles)
+  if (src.includes('/imgroot/')) return thumbToFullRes(src);
+  // For /vv/pics/ and similar non-imgroot paths: strip size suffix like -640, -1200 before extension
+  return src.replace(/-\d+(\.[a-z]+)$/i, '$1');
 }
 
 /**
@@ -344,7 +403,7 @@ function categoryFromCaption(caption: string): string {
  * - Full-res pattern:       /imgroot/reviews/26/<device>/camera/-/-/gsmarena_XXXX.jpg
  * - Category is determined from the <img alt="..."> caption text
  */
-async function scrapeCameraPage(url: string): Promise<ICameraSampleCategory[]> {
+async function scrapeCameraPage(url: string, isNewsPage = false): Promise<ICameraSampleCategory[]> {
   let html: string;
   try {
     html = await getHtml(url);
@@ -352,21 +411,55 @@ async function scrapeCameraPage(url: string): Promise<ICameraSampleCategory[]> {
     return [];
   }
 
+  // For news pages, derive a folder-scoping token to prevent related-article widget
+  // images from leaking in as camera samples.
+  //
+  // Problem: The slug uses underscores (vivo_iqoo_z10_camera_samples-news-67343) but
+  // GSMArena CDN paths use hyphens (…/vivo-iqoo-z10-camera-samples/inline/…), so a
+  // full-slug match never works. Instead we extract the numeric article ID (e.g. 67343)
+  // which appears verbatim in BOTH the slug AND the CDN path.
+  //
+  // e.g. "https://www.gsmarena.com/vivo_iqoo_z10_camera_samples-news-67343.php"
+  //   -> articleFolder = "67343"
+  // CDN path: /imgroot/news/25/04/vivo-iqoo-z10-camera-samples-67343/inline/…
+  //   -> includes("67343") = true  ✓
+  // Unrelated: /imgroot/news/25/04/huawei-mate-xt-sales-numbers/inline/…
+  //   -> includes("67343") = false  ✓ rejected
+  const articleIdMatch = isNewsPage ? url.match(/-news-(\d+)\.php$/) : null;
+  const articleFolder: string | undefined = articleIdMatch ? articleIdMatch[1] : undefined;
+
   const $ = cheerio.load(html);
   const categoryMap = new Map<string, ICameraSample[]>();
   const seen = new Set<string>();
 
   $('img').each((_, el) => {
+    // Check both src and data-src (news pages lazy-load via data-src)
     const src = $(el).attr('src') || $(el).attr('data-src') || '';
-    // Only process real camera sample images (under /camera/ path)
-    if (!isCameraSampleImage(src)) return;
+    // Use relaxed detection for news/article pages; strict for standard review pages
+    const isValid = isNewsPage ? isNewsPageCameraImage(src, articleFolder) : isCameraSampleImage(src);
+    if (!isValid) return;
 
     const thumbUrl = cleanImgUrl(src);
-    const fullUrl = thumbToFullRes(thumbUrl);
+
+    // For news pages: prefer the parent <a href> as the full-res URL when available
+    // (GSMArena news articles wrap camera sample thumbs in a link to the original photo)
+    let fullUrl: string;
+    if (isNewsPage) {
+      const parentHref = $(el).closest('a').attr('href') || '';
+      const absHref = cleanImgUrl(parentHref);
+      // Use parent href only if it looks like a real image URL (not "#" or a page link)
+      if (absHref && absHref !== '#' && /\.(jpe?g|png|webp)$/i.test(absHref) && isContentImage(absHref)) {
+        fullUrl = absHref;
+      } else {
+        fullUrl = newsImageToFullRes(thumbUrl);
+      }
+    } else {
+      fullUrl = thumbToFullRes(thumbUrl);
+    }
+
     if (!fullUrl || seen.has(fullUrl)) return;
-    // Safety: if the URL still contains a size token after stripping, skip it
-    // rather than serve a blurry thumbnail to the client
-    if (isThumbnailUrl(fullUrl)) return;
+    // For standard review pages only: skip if size token still present (blurry thumbnail)
+    if (!isNewsPage && isThumbnailUrl(fullUrl)) return;
     seen.add(fullUrl);
 
     const caption = $(el).attr('alt') || '';
@@ -549,17 +642,8 @@ export async function getReviewDetails(reviewSlug: string): Promise<IReviewResul
   if (isNewsPage) {
     const newsUrl = `${baseUrl}/${reviewSlug}.php`;
     let newsHtml = '';
-    try { newsHtml = await getHtml(newsUrl); } catch (e: any) { 
-      console.log(`[getReviewDetails] news page fetch error: ${e?.message}`);
-      newsHtml = ''; 
-    }
-    console.log(`[getReviewDetails] news page ${newsUrl} html length: ${newsHtml.length}`);
-    // Log first img src found to diagnose image URL pattern
-    if (newsHtml) {
-      const imgMatch = newsHtml.match(/<img[^>]+src="([^"]+)"/i);
-      console.log(`[getReviewDetails] first img src: ${imgMatch ? imgMatch[1] : 'none found'}`);
-    }
-    const cameraSamples = newsHtml ? await scrapeCameraPage(newsUrl) : [];
+    try { newsHtml = await getHtml(newsUrl); } catch { newsHtml = ''; }
+    const cameraSamples = newsHtml ? await scrapeCameraPage(newsUrl, true) : [];
     const lensDetails = newsHtml ? await scrapeLensDetails(newsUrl) : [];
     const firstLifestyle = lensDetails.find(l => l.sectionImageUrl)?.sectionImageUrl;
     return {
@@ -633,7 +717,7 @@ export async function getReviewDetails(reviewSlug: string): Promise<IReviewResul
     if (lensDetails.length >= 2) break; // found a real camera list
   }
 
-  // Scrape article images from non-camera pages (p1, p2, p3, p4 etc)
+  // Scrape article images from non-camera pages (p1, p2, p3, p4 etc.)
   const articleImages: IReviewGallerySection[] = [];
   // Just scrape p1 (overview) for article images to keep response lean
   const p1Sections = await scrapeArticleImages(baseReviewSlug, 1);
