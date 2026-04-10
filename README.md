@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📡 GSMArena + DXOMark API
+# 📡 GSMArena + DXOMark Mobile Specs Api
 ### The only open-source API that fuses hardware specs with professional camera scores
 
 **Full GSMArena specs · DXOMark scores & sub-scores · Categorized camera samples · Smart search · Two-layer cache · Deploy in 2 minutes**
